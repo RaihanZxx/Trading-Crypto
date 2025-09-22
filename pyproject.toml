@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Trading-Crypto"
+version = "0.0.1"
+authors = [
+  { name="RaihanZxx", email="raihanzxzy@gmail.com" },
+]
+description = "Tools for Crypto Algorithm."
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Crypto :: Financial :: Investment",
+]
+
+dependencies = [
+    "requests",
+    "python-dotenv"
+]
+
+[project.urls]
+Homepage = "https://github.com/RaihanZxx/Trading-Crypto"
+Issues = "https://github.com/RaihanZxx/Trading-Crypto/issues"
+
+[project.scripts]
+crypto = "src.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+cache_dir = ".cache/pytest"
+
+[tool.ruff]
+cache-dir = ".cache/ruff"
+
+[tool.pyright]
+cache-dir = ".cache/pyright"
+venvPath = "."
+venv = ".venv"

@@ -1,0 +1,1 @@
+# Test package for Trading-Crypto project
