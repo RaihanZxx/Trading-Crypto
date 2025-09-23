@@ -6,12 +6,10 @@ import time
 import json
 from typing import Dict, List, Optional
 from urllib.parse import urlencode
-import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import random
 from dotenv import load_dotenv
-from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()

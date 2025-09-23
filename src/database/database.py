@@ -1,7 +1,6 @@
 import sqlite3
 import os
-from datetime import datetime, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 
 class Database:

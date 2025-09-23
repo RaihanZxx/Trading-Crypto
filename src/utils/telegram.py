@@ -96,11 +96,11 @@ class TelegramNotifier:
     def send_screener_results(self, gainers: list, losers: list, timestamp: str) -> bool:
         """Send screener results to Telegram, deleting previous message if exists."""
         if not gainers and not losers:
-            message = f"🚨 *Crypto Screener Report* 🚨\n\n"
+            message = "🚨 *Crypto Screener Report* 🚨\n\n"
             message += f"⏰ *Timestamp:* {timestamp}\n\n"
             message += "No significant gainers or losers found."
         else:
-            message = f"🚀 *Crypto Screener Report* 🚀\n\n"
+            message = "🚀 *Crypto Screener Report* 🚀\n\n"
             message += f"⏰ *Timestamp:* {timestamp}\n\n"
             
             if gainers:

@@ -1,13 +1,9 @@
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Tuple, Optional
+from typing import List, Tuple, Optional
 import json
-import requests
 from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Add src to path so we can import our modules
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -15,6 +11,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from database.database import Database
 from connectors.exchange_service import BitgetExchangeService
 from utils.telegram import TelegramNotifier
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class CryptoScreener:
@@ -65,11 +64,23 @@ class CryptoScreener:
         previous_day = today - timedelta(days=1)
         return previous_day.strftime('%Y-%m-%d')
     
+    def get_current_business_day_date_string(self) -> str:
+        """Get current business day's date as string in YYYY-MM-DD format."""
+        today = datetime.now(self.wib_tz)
+        return today.strftime('%Y-%m-%d')
+    
     def fetch_and_store_open_prices(self) -> None:
         """Fetch and store open prices for all futures symbols at 7:00 AM WIB."""
-        # For the screener, we always need the previous day's open prices (7:00 AM WIB)
-        # This is because we compare current prices with yesterday's opening prices
-        open_price_date = self.get_previous_business_day_date_string()
+        # Determine which date's open prices we need based on current time
+        current_time = datetime.now(self.wib_tz)
+        current_hour = current_time.hour
+        
+        # If it's after 7 AM WIB, we need today's open prices
+        # If it's before 7 AM WIB, we need yesterday's open prices
+        if current_hour >= 7:
+            open_price_date = self.get_current_business_day_date_string()
+        else:
+            open_price_date = self.get_previous_business_day_date_string()
         
         # Check if we already have open prices for the required date
         existing_prices = self.db.get_all_open_prices(open_price_date)
@@ -78,8 +89,6 @@ class CryptoScreener:
             return
         
         # Check if current time is around 7:00 AM WIB (with some tolerance)
-        current_time = datetime.now(self.wib_tz)
-        current_hour = current_time.hour
         current_minute = current_time.minute
         
         # Only show warning if it's not around 7:00 AM WIB
@@ -172,8 +181,16 @@ class CryptoScreener:
     def calculate_price_changes(self) -> List[Tuple[str, float, float, float]]:
         """Calculate price changes for all symbols compared to their open prices.
         Returns list of (symbol, open_price, last_price, change_percent)"""
-        # Use previous business day's open prices for comparison
-        open_price_date = self.get_previous_business_day_date_string()
+        # Determine which date's open prices we need based on current time
+        current_time = datetime.now(self.wib_tz)
+        current_hour = current_time.hour
+        
+        # If it's after 7 AM WIB, we need today's open prices
+        # If it's before 7 AM WIB, we need yesterday's open prices
+        if current_hour >= 7:
+            open_price_date = self.get_current_business_day_date_string()
+        else:
+            open_price_date = self.get_previous_business_day_date_string()
         
         # Get open prices from database
         open_prices = self.db.get_all_open_prices(open_price_date)
@@ -254,7 +271,15 @@ class CryptoScreener:
         
         # Step 4: Format results
         timestamp = datetime.now(self.wib_tz).strftime('%Y-%m-%d %H:%M:%S WIB')
-        open_price_date = self.get_previous_business_day_date_string()
+        
+        # Determine which date's open prices we used
+        current_time = datetime.now(self.wib_tz)
+        current_hour = current_time.hour
+        
+        if current_hour >= 7:
+            open_price_date = self.get_current_business_day_date_string()
+        else:
+            open_price_date = self.get_previous_business_day_date_string()
         
         print(f"\n--- Screener Results at {timestamp} (Using open prices from {open_price_date} 07:00 WIB) ---")
         if gainers:

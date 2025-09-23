@@ -28,7 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Environment variables for API keys and Telegram credentials
 - No sensitive information stored in codebase
 
-## [Unreleased]
+## [0.1.1] - 2025-09-23
+
+### Fixed
+- Screener now correctly uses today's open prices when run after 7:00 AM WIB instead of always using yesterday's open prices
+- Resolved import order issues that were causing linting errors
+- Fixed f-string formatting issues in Telegram notifications
 
 ### Planned
 - Add unit tests for all modules
