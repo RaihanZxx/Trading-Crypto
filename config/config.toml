@@ -1,0 +1,24 @@
+# Trading Strategy Configuration
+[strategy]
+# OFI analysis parameters
+imbalance_threshold = 3.0
+absorption_threshold = 1000.0
+delta_threshold = 50000.0
+lookback_period_ms = 5000
+
+# Risk management parameters
+max_position_size = 1000.0
+max_concurrent_positions = 5
+stop_loss_percent = 0.75
+take_profit_percent = 1.5
+
+# Trading parameters
+enable_trading = false  # Whether to actually place trades
+paper_trading = true    # Whether to use paper trading mode
+
+# Screener Configuration
+[screener]
+top_n_gainers = 10
+top_n_losers = 10
+min_price_change_percent = 1.0
+

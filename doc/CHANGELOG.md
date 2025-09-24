@@ -42,3 +42,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Create web dashboard for visualizing data
 - Add email notification support
 - Implement user configuration system
+
+## [0.1.2] - 2025-09-24
+
+### Added
+- OFI (Order Flow Imbalance) engine implemented in Rust for high-performance analysis
+- WebSocket connector for real-time market data using Rust
+- OFI analysis module to detect trading signals based on order book and trade data
+- Python wrapper for Rust OFI engine using PyO3
+- New strategy directory for implementing trading strategies
+- Data structures for order book and trade data handling in Rust
+- Signal detection algorithms based on order flow analysis
+
+### Changed
+- Updated project structure to support multi-language development (Python + Rust)
+- Enhanced README with information about Rust components and OFI engine
+- Updated installation instructions to include Rust requirements
+- Refactored architecture diagram to show new components
+
+### Fixed
+- Corrected import order issues identified in previous release
+- Improved error handling in WebSocket connections
+
+### Security
+- Maintained environment variable approach for API credentials
+- Added support for secure credential handling in multi-language environment
