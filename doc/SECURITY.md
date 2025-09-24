@@ -10,7 +10,7 @@ Currently, only the latest version of this project is being supported with secur
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please send an email to raihanzxx@example.com. All security vulnerabilities will be promptly addressed.
+If you discover a security vulnerability within this project, please send an email to raihanzxx@gmal.com. All security vulnerabilities will be promptly addressed.
 
 Please do not publicly disclose the vulnerability until it has been addressed by the team.
 

@@ -234,3 +234,231 @@ class BitgetExchangeService:
         except Exception as e:
             print(f"Error getting open price for {symbol}: {e}")
             return None
+
+    def get_balance(self, margin_coin: str = "USDT") -> Dict:
+        """
+        Get account balance for futures trading.
+        
+        Args:
+            margin_coin (str): The margin coin to get balance for (default: USDT)
+        
+        Returns:
+            Dict: Account balance information
+        """
+        endpoint = "/api/v2/mix/account/accounts"
+        params = {
+            "productType": "USDT-FUTURES",
+            "marginCoin": margin_coin
+        }
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get balance due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to get balance: {response}")
+    
+    def place_order(self, symbol: str, side: str, size: float, order_type: str = "limit", 
+                   price: Optional[float] = None, time_in_force: str = "normal", 
+                   client_oid: Optional[str] = None) -> Dict:
+        """
+        Place an order on Bitget.
+        
+        Args:
+            symbol (str): Trading symbol (e.g., "BTCUSDT")
+            side (str): "buy" or "sell"
+            size (float): Order size in contracts
+            order_type (str): "limit", "market", "post_only", etc.
+            price (float, optional): Price for limit orders
+            time_in_force (str): "normal", "post_only", "gtc", etc.
+            client_oid (str, optional): Client order ID
+        
+        Returns:
+            Dict: Order response
+        """
+        endpoint = "/api/v2/mix/order/place-order"
+        
+        # Validate required parameters
+        if side.lower() not in ["buy", "sell"]:
+            raise ValueError(f"Side must be 'buy' or 'sell', got: {side}")
+        
+        if order_type.lower() not in ["limit", "market"]:
+            raise ValueError(f"Order type must be 'limit' or 'market', got: {order_type}")
+        
+        # Prepare order data
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "marginMode": "crossed",  # or "fixed" based on your strategy
+            "side": side.lower(),
+            "orderType": order_type.lower(),
+            "size": str(size),
+            "timeInForceValue": time_in_force
+        }
+        
+        # Add price for limit orders
+        if order_type.lower() == "limit":
+            if price is None:
+                raise ValueError("Price is required for limit orders")
+            data["price"] = str(price)
+        
+        # Add client order ID if provided
+        if client_oid:
+            data["clientOid"] = client_oid
+        
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to place order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to place order: {response}")
+    
+    def place_stop_market_order(self, symbol: str, side: str, trigger_price: float, 
+                               size: float, trigger_type: str = "market_price") -> Dict:
+        """
+        Place a stop market order (conditional order) on Bitget.
+        
+        Args:
+            symbol (str): Trading symbol (e.g., "BTCUSDT")
+            side (str): "buy" or "sell" - for stop orders, this is opposite of the initial position
+            trigger_price (float): Price that triggers the order
+            size (float): Order size in contracts
+            trigger_type (str): "market_price" or "mark_price" - what price feeds the trigger
+        
+        Returns:
+            Dict: Stop order response
+        """
+        endpoint = "/api/v2/mix/order/place-trigger-order"
+        
+        # Validate required parameters
+        if side.lower() not in ["buy", "sell"]:
+            raise ValueError(f"Side must be 'buy' or 'sell', got: {side}")
+        
+        if trigger_type not in ["market_price", "mark_price"]:
+            raise ValueError(f"Trigger type must be 'market_price' or 'mark_price', got: {trigger_type}")
+        
+        # Determine trigger side based on what we want to close position
+        # If we have a long position (bought), we want to sell when price goes down (stop loss)
+        # If we have a short position (sold), we want to buy when price goes up (stop loss)
+        trigger_side = "close_long" if side.lower() == "sell" else "close_short"
+        
+        # Prepare stop order data
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "marginMode": "crossed",  # or "fixed" based on your strategy
+            "side": trigger_side,
+            "orderType": "market",
+            "triggerType": trigger_type,
+            "triggerPrice": str(trigger_price),
+            "size": str(size),
+            "executePrice": "",  # Empty for market orders
+        }
+        
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to place stop order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to place stop order: {response}")
+    
+    def get_positions(self, symbol: Optional[str] = None) -> List[Dict]:
+        """
+        Get all open positions for the account.
+        
+        Args:
+            symbol (str, optional): Specific symbol to query, or all if None
+        
+        Returns:
+            List[Dict]: List of position data
+        """
+        endpoint = "/api/v2/mix/position/single-position"
+        
+        params = {
+            "productType": "USDT-FUTURES",
+        }
+        
+        if symbol:
+            params["symbol"] = symbol
+        
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get positions due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', [])
+        else:
+            raise Exception(f"Failed to get positions: {response}")
+    
+    def get_open_orders(self, symbol: Optional[str] = None) -> List[Dict]:
+        """
+        Get all open orders for the account.
+        
+        Args:
+            symbol (str, optional): Specific symbol to query, or all if None
+        
+        Returns:
+            List[Dict]: List of open order data
+        """
+        endpoint = "/api/v2/mix/order/current-orders"
+        
+        params = {
+            "productType": "USDT-FUTURES",
+        }
+        
+        if symbol:
+            params["symbol"] = symbol
+        
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get open orders due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', [])
+        else:
+            raise Exception(f"Failed to get open orders: {response}")
+    
+    def cancel_order(self, symbol: str, order_id: str) -> Dict:
+        """
+        Cancel a specific order.
+        
+        Args:
+            symbol (str): Trading symbol
+            order_id (str): Order ID to cancel
+        
+        Returns:
+            Dict: Cancel order response
+        """
+        endpoint = "/api/v2/mix/order/cancel-order"
+        
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "orderId": order_id
+        }
+        
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to cancel order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to cancel order: {response}")

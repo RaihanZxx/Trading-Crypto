@@ -314,6 +314,37 @@ class CryptoScreener:
         except Exception as e:
             print(f"❌ Error saving results to database: {e}")
 
+def get_top_candidates(top_n: int = 5) -> List[str]:
+    """
+    Fungsi utama yang akan dipanggil oleh Rust.
+    Menjalankan screener dan mengembalikan daftar simbol kandidat.
+    """
+    print("[Python Screener] Dipanggil oleh Sentinel...")
+    try:
+        screener = CryptoScreener()
+        # Langkah 1 & 2: Ambil data dan hitung perubahan
+        screener.fetch_and_store_open_prices()
+        price_changes = screener.calculate_price_changes()
+        
+        if not price_changes:
+            return []
+            
+        # Langkah 3: Dapatkan top gainers dan losers
+        gainers, losers = screener.get_top_gainers_losers(price_changes, top_n=top_n)
+        
+        # Gabungkan dan ambil hanya simbolnya
+        candidates = [g[0] for g in gainers] + [loser[0] for loser in losers]
+        
+        # Pastikan tidak ada duplikat dan batasi jumlahnya
+        unique_candidates = list(dict.fromkeys(candidates))
+        
+        print(f"[Python Screener] Mengirim kandidat: {unique_candidates[:top_n * 2]}")
+        return unique_candidates[:top_n * 2] # Kirim max 10 koin
+
+    except Exception as e:
+        print(f"[Python Screener] Error: {e}")
+        return []
+
 def main():
     """Main entry point for the screener."""
     screener = CryptoScreener()

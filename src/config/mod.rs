@@ -28,6 +28,8 @@ struct OFITomlConfig {
     default_lookback_period_ms: Option<u64>,
     #[serde(rename = "analysis_duration_limit_ms")]
     analysis_duration_limit_ms: Option<u64>,
+    #[serde(rename = "analysis_duration_per_cycle_ms")]
+    analysis_duration_per_cycle_ms: Option<u64>,
     #[serde(rename = "trade_storage_limit")]
     trade_storage_limit: Option<usize>,
     #[serde(rename = "strong_signal_confidence")]
@@ -62,6 +64,7 @@ pub struct OFIConfig {
     pub default_delta_threshold: f64,
     pub default_lookback_period_ms: u64,
     pub analysis_duration_limit_ms: u64,
+    pub analysis_duration_per_cycle_ms: u64,  // Duration for each analysis cycle
     pub trade_storage_limit: usize,
     pub strong_signal_confidence: f64,
     pub reversal_signal_confidence: f64,
@@ -80,6 +83,7 @@ impl Default for OFIConfig {
             default_delta_threshold: 0.0,  // Harus disediakan di config.toml
             default_lookback_period_ms: 0,  // Harus disediakan di config.toml
             analysis_duration_limit_ms: 0,  // Harus disediakan di config.toml
+            analysis_duration_per_cycle_ms: 0,  // Harus disediakan di config.toml
             trade_storage_limit: 0,  // Harus disediakan di config.toml
             strong_signal_confidence: 0.0,  // Harus disediakan di config.toml
             reversal_signal_confidence: 0.0,  // Harus disediakan di config.toml
@@ -119,6 +123,9 @@ impl OFIConfig {
             }
             if let Some(limit) = ofi_toml.analysis_duration_limit_ms {
                 config.analysis_duration_limit_ms = limit;
+            }
+            if let Some(duration) = ofi_toml.analysis_duration_per_cycle_ms {
+                config.analysis_duration_per_cycle_ms = duration;
             }
             if let Some(limit) = ofi_toml.trade_storage_limit {
                 config.trade_storage_limit = limit;
@@ -186,6 +193,10 @@ impl OFIConfig {
         
         if config.analysis_duration_limit_ms == 0 {
             return Err("analysis_duration_limit_ms must be provided in config.toml".into());
+        }
+        
+        if config.analysis_duration_per_cycle_ms == 0 {
+            return Err("analysis_duration_per_cycle_ms must be provided in config.toml".into());
         }
         
         if config.trade_storage_limit == 0 {
@@ -277,6 +288,10 @@ impl OFIConfig {
         
         if self.analysis_duration_limit_ms == 0 {
             return Err("Analysis duration limit must be positive".to_string());
+        }
+        
+        if self.analysis_duration_per_cycle_ms == 0 || self.analysis_duration_per_cycle_ms > self.analysis_duration_limit_ms {
+            return Err(format!("Analysis duration per cycle must be positive and not exceed the limit of {}ms", self.analysis_duration_limit_ms));
         }
         
         if self.trade_storage_limit == 0 {

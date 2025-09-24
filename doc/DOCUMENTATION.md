@@ -4,21 +4,25 @@
 1. [Overview](#overview)
 2. [Project Structure](#project-structure)
 3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Usage](#usage)
-6. [Modules](#modules)
-7. [OFI Engine](#ofi-engine)
-8. [Testing](#testing)
-9. [Error Handling](#error-handling)
-10. [Database Schema](#database-schema)
-11. [API Documentation](#api-documentation)
-12. [Changelog](#changelog)
+4. [Risk Management System](#risk-management-system)
+5. [Configuration](#configuration)
+6. [Usage](#usage)
+7. [Modules](#modules)
+8. [OFI Engine](#ofi-engine)
+9. [OFI Sentinel](#ofi-sentinel)
+10. [Testing](#testing)
+11. [Error Handling](#error-handling)
+12. [Database Schema](#database-schema)
+13. [API Documentation](#api-documentation)
+14. [Changelog](#changelog)
 
 ## Overview
 
 The Crypto Trading Screener is an automated tool that monitors cryptocurrency futures markets and identifies top gainers and losers based on price changes from the daily opening price. The system fetches data from the Bitget exchange, stores it in a local database, and sends notifications via Telegram.
 
 In addition to the screener, the project includes an OFI (Order Flow Imbalance) engine implemented in Rust for high-performance analysis of market data from WebSocket connections. This allows for real-time trading signal detection based on order book and trade data.
+
+Most importantly, the system now features the **OFI Sentinel**, a Rust-based daemon application that runs continuously and manages multiple concurrent analysis tasks. It orchestrates the entire trading operation by periodically calling Python services for screening and execution.
 
 ## Project Structure
 
@@ -35,6 +39,7 @@ Trading-Crypto/
 │   └── DOCUMENTATION.md
 ├── src/
 │   ├── Cargo.toml
+│   ├── main.rs                 # OFI Sentinel - main daemon application in Rust
 │   ├── connectors/
 │   │   ├── __init__.py
 │   │   ├── exchange_service.py
@@ -42,6 +47,9 @@ Trading-Crypto/
 │   ├── database/
 │   │   ├── __init__.py
 │   │   └── database.py
+│   ├── execution_service/
+│   │   ├── __init__.py
+│   │   └── manager.py
 │   ├── screener/
 │   │   ├── __init__.py
 │   │   └── screener.py
@@ -50,6 +58,7 @@ Trading-Crypto/
 │   │       ├── __init__.py
 │   │       ├── data.rs
 │   │       ├── engine.rs
+│   │       ├── ofi.rs
 │   │       ├── signals.rs
 │   │       ├── wrapper.py
 │   │       └── websocket.rs
@@ -57,7 +66,7 @@ Trading-Crypto/
 │   │   └── __init__.py
 │   ├── utils/
 │   │   ├── __init__.py
-│   │   └── telegram.py
+│   │   └── lib.rs
 │   └── main.py
 ├── .env
 ├── .env.example
@@ -140,19 +149,36 @@ python -c "from src.strategy.OFI.wrapper import analyze_symbol; signal = analyze
 
 ### Screener
 - `screener.py`: Core logic for fetching prices, calculating changes, and identifying gainers/losers
+- Now functions as a service layer callable by the OFI Sentinel
+
+### Execution Service
+- `execution_service/manager.py`: Python service for trade execution and advanced risk management
+- Contains `TradeManager` class for executing trades and managing positions
+- Implements 1% risk management system with dynamic position sizing based on account equity
+- Manages automatic stop-loss orders at 1% from entry price
+- Provides real-time position monitoring and tracking
+- Includes portfolio-level risk management with configurable maximum concurrent positions
+- Features position closure functionality and risk metrics reporting
 
 ### Strategy
 - `strategy/OFI/`: Implementation of Order Flow Imbalance analysis
   - `engine.rs`: Main analysis engine for processing market data
   - `data.rs`: Data structures for market data (order book, trades)
+  - `ofi.rs`: Core OFI calculation algorithms
   - `signals.rs`: Algorithms for detecting trading signals based on market data
+  - `websocket.rs`: WebSocket connection for real-time market data
   - `wrapper.py`: Python wrapper for the Rust OFI engine
 
 ### Utils
+- `lib.rs`: Rust module definitions and PyO3 bindings
 - `telegram.py`: Telegram notification system
 
 ### Test
 - Currently empty but will contain unit tests in future versions
+
+### Main Application
+- `main.rs`: OFI Sentinel - Rust-based daemon application that manages concurrent analysis tasks
+- Orchestrates the entire trading operation with periodic Python service calls
 
 ## OFI Engine
 
@@ -177,6 +203,176 @@ The OFI (Order Flow Imbalance) engine is a high-performance analysis engine writ
 - `analysis_duration_ms`: Duration to run analysis (default: 5000ms)
 - `delta_threshold`: Threshold for cumulative order flow (default: 50000.0)
 - `lookback_period_ms`: Time window for analysis (default: 5000ms)
+
+## OFI Sentinel
+
+The OFI Sentinel is a Rust-based daemon application that runs continuously (24/7) and manages multiple concurrent analysis tasks. It serves as the brain of the entire trading operation, orchestrating communication between Rust and Python components.
+
+### Features
+- **Concurrent Analysis**: Manages multiple analysis tasks running simultaneously, each dedicated to a specific cryptocurrency symbol
+- **Real-time Monitoring**: Each task maintains a persistent WebSocket connection to receive market data
+- **Dynamic Watchlist**: Periodically calls Python Screener service to get an updated list of relevant symbols to monitor (e.g., every 15 minutes)
+- **Signal Processing**: Collects trading signals from all analysis tasks via MPSC channels
+- **Execution Delegation**: Calls Python Execution Service when valid trading signals are detected
+- **Resource Management**: Dynamically starts and stops analysis tasks based on watchlist changes
+
+### Architecture
+1. **Main Sentinel Loop** (`main.rs`):
+   - Manages the lifecycle of concurrent analysis tasks
+   - Runs a periodic scheduler to refresh the watchlist
+   - Aggregates signals from all analysis tasks
+   - Delegates trade execution to Python service when signals are received
+
+2. **Analysis Tasks** (async tasks in `main.rs`):
+   - Each task is dedicated to a single cryptocurrency symbol
+   - Maintains WebSocket connection via existing `connectors/websocket.rs`
+   - Processes real-time market data using OFI engine
+   - Sends detected signals to main loop via MPSC channel
+
+3. **Python Integration** (via PyO3):
+   - Calls `get_top_candidates()` function in `screener/screener.py` for watchlist updates
+   - Calls `handle_trade_signal()` function in `execution_service/manager.py` for trade execution
+
+### Configuration
+The Sentinel uses the same configuration system as the OFI engine, loading parameters from `config.toml` and API credentials from environment variables.
+
+### Parameters
+- Watchlist refresh interval (default: 15 minutes)
+- Maximum number of concurrent analysis tasks
+- Signal confidence thresholds for execution
+- Analysis duration per cycle (from config.toml)
+
+## Risk Management System
+
+The system includes a sophisticated risk management system that implements 1% risk per trade methodology to protect capital and ensure sustainable trading performance.
+
+### Key Features
+
+- **Dynamic Position Sizing**: Position size is calculated based on 1% of current account equity, ensuring risk is proportional to available capital
+- **Stop-Loss Automation**: Each trade automatically includes a stop-loss order at 1% from entry price
+- **Concurrent Position Limits**: Configurable maximum number of positions to prevent over-leveraging
+- **Real-time Position Monitoring**: Each position is continuously monitored until closed
+- **Risk Metrics Dashboard**: Provides summary of active positions and risk exposure
+
+### Risk Calculation Formula
+
+The position size is calculated using the formula:
+```
+Position Size = (Account Equity * Risk Percentage) / (Entry Price * Stop-Loss Percentage)
+```
+
+For example, with $10,000 equity and 1% risk per trade:
+- Risk Amount = $10,000 * 0.01 = $100
+- For BTC at $50,000 with 1% stop-loss: Position Size = $100 / ($50,000 * 0.01) = 0.2 contracts
+
+### Configuration Parameters
+
+The risk management system uses the following configuration parameters from `config.toml`:
+
+```toml
+[execution]
+# Risk management parameters
+max_concurrent_positions = 5           # Maximum positions open at once
+stop_loss_percent = 0.01              # Stop loss as percentage (0.01 = 1%)
+risk_percentage = 0.01                # Risk per trade as percentage of equity (0.01 = 1%)
+use_dynamic_risk = true               # Enable dynamic risk based on account equity
+```
+
+### Position Management
+
+The system provides comprehensive position management:
+
+- **Position Tracking**: Each position is tracked with entry price, size, stop-loss level, and order IDs
+- **Automatic Stop-Loss**: Stop-loss orders are placed immediately after trade execution
+- **Real-time Monitoring**: Background threads monitor position status on exchange
+- **Position Closure**: Automatic removal from tracking when position is closed
+- **Risk Summary**: Provides total risk exposure across all positions
+
+### API Functions
+
+The execution service provides several key functions:
+
+- `execute_trade(signal)`: Execute a trade with proper risk management
+- `_calculate_position_size(price)`: Calculate position size based on risk parameters
+- `get_active_positions()`: Get all currently tracked positions
+- `get_position_summary()`: Get risk metrics summary
+- `close_position(symbol)`: Manually close a specific position
+- `_monitor_position(symbol)`: Internal monitoring function for position tracking
+
+### Error Handling
+
+The risk management system implements robust error handling:
+
+- Validates account equity before calculating position size
+- Handles API errors gracefully without stopping the system
+- Provides fallback mechanisms for position tracking
+- Implements retry mechanisms for exchange API calls
+- Logs all risk management decisions for audit trails
+
+## Configuration
+
+The system uses a centralized configuration system with parameters stored in `config.toml` and API credentials stored in environment variables for security.
+
+### config.toml Structure
+
+```toml
+# OFI Engine Configuration
+[ofi]
+websocket_url = "wss://ws.bitget.com/v2/ws/public"
+default_imbalance_threshold = 3.0
+default_absorption_threshold = 1000.0
+default_delta_threshold = 50000.0
+default_lookback_period_ms = 5000
+analysis_duration_limit_ms = 3600000
+analysis_duration_per_cycle_ms = 5000  # Duration for each analysis cycle
+trade_storage_limit = 200
+strong_signal_confidence = 0.9
+reversal_signal_confidence = 0.8
+exhaustion_signal_confidence = 0.7
+
+# Strategy Configuration
+[strategy]
+imbalance_threshold = 3.0
+absorption_threshold = 1000.0
+delta_threshold = 50000.0
+lookback_period_ms = 5000
+
+# Screener Configuration
+[screener]
+top_n_gainers = 10
+top_n_losers = 10
+min_price_change_percent = 1.0
+
+# Execution Configuration
+[execution]
+# Risk management parameters
+max_concurrent_positions = 5
+stop_loss_percent = 0.01
+risk_percentage = 0.01  # 1% of wallet balance for dynamic risk
+use_dynamic_risk = true  # Set to true to use dynamic risk calculation
+```
+
+### Configuration Parameters
+
+#### [ofi] Section
+- `websocket_url`: WebSocket endpoint for market data
+- `default_imbalance_threshold`: Minimum ratio for detecting order book imbalances
+- `default_absorption_threshold`: Threshold for absorption detection
+- `default_delta_threshold`: Threshold for cumulative order flow significance
+- `default_lookback_period_ms`: Time window (in ms) for analysis calculations
+- `analysis_duration_limit_ms`: Maximum allowed analysis duration per symbol (in ms)
+- `analysis_duration_per_cycle_ms`: Duration of each analysis cycle (in ms) - controls how long each task analyzes a symbol before checking for new signals
+- `trade_storage_limit`: Maximum number of trades to keep in memory per symbol
+- `strong_signal_confidence`: Confidence level for strong signals (0.0-1.0)
+- `reversal_signal_confidence`: Confidence level for reversal signals (0.0-1.0)
+- `exhaustion_signal_confidence`: Confidence level for exhaustion signals (0.0-1.0)
+
+#### [execution] Section
+- `max_concurrent_positions`: Maximum number of positions that can be open simultaneously
+- `stop_loss_percent`: Stop loss as percentage of entry price (e.g., 0.01 for 1%)
+- `risk_percentage`: Risk amount as percentage of total equity per trade (e.g., 0.01 for 1%)
+- `use_dynamic_risk`: Whether to use dynamic risk calculation based on current equity
+- `stop_loss_percent`: Stop loss as percentage of entry price
 
 ## Testing
 

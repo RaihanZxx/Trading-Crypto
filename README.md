@@ -20,7 +20,8 @@ Bot trading cryptocurrency berkinerja tinggi yang dibuat dengan Python dan Rust 
 ## ✨ Fitur Utama
 
 - **`screener`**: Memindai semua mata uang kripto untuk menemukan peluang di antara koin-koin Top 10 Gainer & Loser.
-- **`OFI Engine`**: Mesin analisis berbasis Rust untuk menghitung Order Flow Imbalance (OFI) dan mendeteksi sinyal perdagangan berdasarkan data order book dan trade real-time.
+- **`OFI Sentinel`**: Aplikasi daemon berbasis Rust yang berjalan terus-menerus (24/7) sebagai otak utama dari operasi. Sentinel ini mengelola beberapa *task* analisis secara konkuren, memanggil Python Screener secara periodik untuk mendapatkan daftar koin pantauan terbaru, dan memanggil Python Execution Service saat sinyal perdagangan terdeteksi. Setiap *task* analisis memiliki koneksi WebSocket sendiri untuk menerima data real-time dan mendeteksi sinyal berdasarkan algoritma OFI.
+- **`Risk Management`**: Sistem manajemen risiko canggih dengan fitur 1% risiko per perdagangan (dynamic risk) yang otomatis menghitung ukuran posisi berdasarkan equity akun, serta stop-loss otomatis untuk melindungi modal.
 - **`WebSocket Connectors`**: Koneksi real-time ke exchange untuk data order book dan trade terbaru.
 - **`Multi-language`**: Kombinasi Python untuk logika tingkat tinggi dan Rust untuk komputasi performa tinggi.
 
@@ -79,6 +80,32 @@ Jalankan berbagai modul dengan perintah sederhana:
   python -c "from src.strategy.OFI.wrapper import analyze_symbol; signal = analyze_symbol('BTCUSDT'); print(signal)"
   ```
 
+- **Jalankan OFI Sentinel (daemon utama):**
+  ```bash
+  cd src && cargo run
+  ```
+
+## 🛡️ Manajemen Risiko
+
+Sistem ini dilengkapi dengan fitur manajemen risiko canggih:
+
+- **1% Risiko Per Perdagangan**: Ukuran posisi dihitung secara dinamis berdasarkan 1% dari equity akun
+- **Stop-Loss Otomatis**: Setiap perdagangan dilengkapi dengan stop-loss 1% dari harga entry
+- **Manajemen Posisi**: Sistem melacak semua posisi aktif dan memonitor statusnya secara real-time
+- **Batas Posisi Maksimum**: Konfigurasi untuk membatasi jumlah posisi yang dapat dibuka secara bersamaan
+- **Monitoring Otomatis**: Setiap posisi dipantau terus-menerus hingga ditutup
+
+### Konfigurasi Risiko di config.toml
+
+```toml
+[execution]
+# Manajemen risiko
+max_concurrent_positions = 5
+stop_loss_percent = 0.01  # 1% stop loss
+risk_percentage = 0.01    # 1% risiko per perdagangan dari total balance
+use_dynamic_risk = true   # Menggunakan equity akun secara dinamis
+```
+
 ---
 
 ## 📚 Dokumentasi
@@ -103,28 +130,38 @@ Proyek ini terorganisir ke dalam komponen-komponen modular untuk kemudahan penge
 ├── doc/                    # Dokumentasi proyek
 └── src/
     ├── Cargo.toml          # Konfigurasi build Rust
+    ├── main.rs             # OFI Sentinel - aplikasi daemon utama berbasis Rust
     ├── connectors/         # Konektor API Bursa (Python & Rust)
     │   ├── exchange_service.py
     │   └── websocket.rs
     ├── database/           # Operasi database
+    ├── execution_service/  # Service eksekusi perdagangan berbasis Python
+    │   ├── __init__.py
+    │   └── manager.py
     ├── screener/           # Logika aplikasi Screener
+    │   ├── __init__.py
+    │   └── screener.py
     ├── strategy/           # Implementasi strategi perdagangan
     │   └── OFI/            # Order Flow Imbalance analysis
-    │       ├── engine.rs
-    │       ├── data.rs
-    │       ├── signals.rs
-    │       └── wrapper.py
+    │       ├── data.rs     # Struktur data untuk order book dan trade
+    │       ├── engine.rs   # Mesin analisis OFI
+    │       ├── ofi.rs      # Algoritma OFI
+    │       ├── signals.rs  # Deteksi sinyal perdagangan
+    │       └── websocket.rs # Koneksi WebSocket untuk data real-time
     ├── test/               # File test
     ├── utils/              # Fungsi utilitas (Python & Rust)
-    └── main.py             # Titik masuk aplikasi
+    │   └── lib.rs          # Definisi modul Rust
+    └── main.py             # Titik masuk aplikasi Python (lama)
 ```
 
+- `src/main.rs`: OFI Sentinel - aplikasi daemon utama berbasis Rust yang mengelola analisis konkuren
 - `src/connectors/`: Konektor API exchange (Python & Rust)
 - `src/database/`: Operasi database
-- `src/screener/`: Modul Screener untuk analisis pasar
-- `src/strategy/`: Implementasi berbagai strategi perdagangan
+- `src/execution_service/`: Service Python untuk eksekusi perdagangan dan manajemen risiko
+- `src/screener/`: Modul Screener untuk analisis pasar (sekarang berfungsi sebagai service layer)
+- `src/strategy/OFI/`: Implementasi lengkap strategi OFI (data, engine, algoritma, sinyal, WebSocket)
 - `src/test/`: File test
-- `src/utils/`: Fungsi utilitas (Python & Rust)
+- `src/utils/`: Fungsi utilitas dan definisi modul Rust
 - `data/`: File database SQLite (crypto_screener.db dan telegram_state.json)
 - `doc/`: Dokumentasi proyek
 - `config/`: File konfigurasi untuk parameter strategi

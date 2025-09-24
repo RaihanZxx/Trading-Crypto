@@ -5,7 +5,6 @@ This module provides a Python interface to the Rust-based OFI analysis engine.
 """
 
 import os
-import sys
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 

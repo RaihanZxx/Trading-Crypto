@@ -6,15 +6,13 @@ absorption_threshold = 1000.0
 delta_threshold = 50000.0
 lookback_period_ms = 5000
 
+# Execution Configuration
+[execution]
 # Risk management parameters
-max_position_size = 1000.0
 max_concurrent_positions = 5
-stop_loss_percent = 0.75
-take_profit_percent = 1.5
-
-# Trading parameters
-enable_trading = false  # Whether to actually place trades
-paper_trading = true    # Whether to use paper trading mode
+stop_loss_percent = 0.01
+risk_percentage = 0.01  # 1% of wallet balance for dynamic risk
+use_dynamic_risk = true  # Set to true to use dynamic risk calculation
 
 # Screener Configuration
 [screener]
@@ -30,6 +28,7 @@ default_absorption_threshold = 1000.0
 default_delta_threshold = 50000.0
 default_lookback_period_ms = 5000
 analysis_duration_limit_ms = 3600000
+analysis_duration_per_cycle_ms = 5000  # Duration for each analysis cycle
 trade_storage_limit = 200
 strong_signal_confidence = 0.9
 reversal_signal_confidence = 0.8
