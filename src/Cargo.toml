@@ -1,0 +1,39 @@
+[package]
+name = "ofi_engine_rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# WebSocket client
+tokio-tungstenite = { version = "0.27", features = ["rustls-tls-native-roots"] }
+tokio = { version = "1.0", features = ["full"] }
+# JSON parsing
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.145"
+# HTTP client for REST API calls
+reqwest = { version = "0.11", features = ["json"] }
+# Error handling
+anyhow = "1.0.99"
+# Async traits
+async-trait = "0.1.89"
+# Logging
+log = "0.4.22"
+env_logger = "0.11.8"
+# Time handling
+chrono = { version = "0.4.42", features = ["serde"] }
+# URL parsing
+url = "2.5"
+# Futures
+futures-util = { version = "0.3.30", features = ["sink"] }
+# TLS support with ring crypto provider
+rustls = { version = "0.23", features = ["ring"] }
+
+# PyO3 for Python bindings
+[dependencies.pyo3]
+version = "0.22"
+features = ["extension-module", "anyhow"]
+
+[lib]
+name = "ofi_engine_rust"
+crate-type = ["cdylib", "rlib"]
+path = "utils/lib.rs"
