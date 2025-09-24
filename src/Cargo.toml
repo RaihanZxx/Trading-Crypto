@@ -28,6 +28,9 @@ futures-util = { version = "0.3.30", features = ["sink"] }
 # TLS support with ring crypto provider
 rustls = { version = "0.23", features = ["ring"] }
 
+# TOML parsing
+toml = "0.8"
+
 # PyO3 for Python bindings
 [dependencies.pyo3]
 version = "0.22"

@@ -22,3 +22,16 @@ top_n_gainers = 10
 top_n_losers = 10
 min_price_change_percent = 1.0
 
+# OFI Engine Configuration
+[ofi]
+websocket_url = "wss://ws.bitget.com/v2/ws/public"
+default_imbalance_threshold = 3.0
+default_absorption_threshold = 1000.0
+default_delta_threshold = 50000.0
+default_lookback_period_ms = 5000
+analysis_duration_limit_ms = 3600000
+trade_storage_limit = 200
+strong_signal_confidence = 0.9
+reversal_signal_confidence = 0.8
+exhaustion_signal_confidence = 0.7
+

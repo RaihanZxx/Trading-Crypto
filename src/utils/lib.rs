@@ -1,5 +1,8 @@
 // src/utils/lib.rs
 
+#[path = "../config/mod.rs"]
+pub mod config;
+
 #[path = "../strategy/OFI/data.rs"]
 mod data;
 
@@ -15,6 +18,7 @@ mod signals;
 #[path = "../connectors/websocket.rs"]
 mod websocket;
 
+use crate::config::OFIConfig;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustls::crypto::ring;
@@ -99,38 +103,78 @@ impl From<signals::TradingSignal> for TradingSignal {
 /// Main OFI analysis engine
 #[pyclass]
 pub struct OFIEngine {
-    #[pyo3(get, set)]
-    api_key: String,
-    #[pyo3(get, set)]
-    secret_key: String,
-    #[pyo3(get, set)]
-    passphrase: String,
-    // We'll remove the engine field since it's not being used
+    config: OFIConfig,
 }
 
 #[pymethods]
 impl OFIEngine {
     #[new]
-    fn new(api_key: String, secret_key: String, passphrase: String) -> Self {
-        OFIEngine {
+    fn new(api_key: String, secret_key: String, passphrase: String) -> PyResult<Self> {
+        let config = OFIConfig {
             api_key,
             secret_key,
             passphrase,
+            ..Default::default()
+        };
+        
+        // Validate configuration
+        if let Err(e) = config.validate() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!("Invalid configuration: {}", e)));
         }
+        
+        Ok(OFIEngine { config })
     }
     
     /// Analyze a symbol for trading signals using OFI methodology.
     /// This function will block for `analysis_duration_ms` while it analyzes real-time data.
     #[pyo3(name = "analyze_symbol")]
     fn analyze_symbol_py(&self, symbol: String, imbalance_ratio: f64, analysis_duration_ms: u64, delta_threshold: f64, lookback_period_ms: u64) -> PyResult<Option<TradingSignal>> {
+        // Input validation
+        if symbol.is_empty() {
+            return Err(pyo3::exceptions::PyValueError::new_err("Symbol cannot be empty"));
+        }
+        
+        if symbol.len() > 20 {
+            return Err(pyo3::exceptions::PyValueError::new_err("Symbol is too long: max 20 characters"));
+        }
+        
+        if !symbol.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/') {
+            return Err(pyo3::exceptions::PyValueError::new_err("Symbol contains invalid characters"));
+        }
+        
+        if imbalance_ratio <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err("Imbalance ratio must be positive"));
+        }
+        
+        if analysis_duration_ms == 0 || analysis_duration_ms > 3600000 { // 1 hour max
+            return Err(pyo3::exceptions::PyValueError::new_err("Duration must be between 1ms and 1 hour"));
+        }
+        
+        if delta_threshold <= 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err("Delta threshold must be positive"));
+        }
+        
+        if lookback_period_ms == 0 || lookback_period_ms > 300000 { // 5 minutes max
+            return Err(pyo3::exceptions::PyValueError::new_err("Lookback period must be between 1ms and 5 minutes"));
+        }
+
         // Create a Tokio runtime to run our async code from a sync context
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
-            .build()?;
+            .build()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create runtime: {}", e)))?;
             
         // Block on the async analysis function
         let result = rt.block_on(async {
-            engine::run_analysis(symbol, imbalance_ratio, analysis_duration_ms, delta_threshold, lookback_period_ms).await
+            // Use the engine's configuration instead of loading from environment each time
+            crate::engine::run_analysis_with_config(
+                symbol, 
+                imbalance_ratio, 
+                analysis_duration_ms, 
+                delta_threshold, 
+                lookback_period_ms, 
+                self.config.clone()
+            ).await
         });
         
         match result {
@@ -157,7 +201,57 @@ impl OFIEngine {
     fn get_engine_info(&self) -> String {
         format!("OFI Engine v{}", env!("CARGO_PKG_VERSION"))
     }
+    
+    /// Update configuration parameters
+    #[pyo3(name = "update_config", signature = (api_key=None, secret_key=None, passphrase=None))]
+    fn update_config(&mut self, api_key: Option<String>, secret_key: Option<String>, passphrase: Option<String>) {
+        if let Some(key) = api_key {
+            self.config.api_key = key;
+        }
+        if let Some(key) = secret_key {
+            self.config.secret_key = key;
+        }
+        if let Some(pass) = passphrase {
+            self.config.passphrase = pass;
+        }
+    }
+    
+    /// Get current configuration status
+    #[pyo3(name = "get_config_status")]
+    fn get_config_status(&self) -> String {
+        let has_api_key = !self.config.api_key.is_empty();
+        let has_secret_key = !self.config.secret_key.is_empty();
+        let has_passphrase = !self.config.passphrase.is_empty();
+        
+        format!(
+            "API Key: {}, Secret Key: {}, Passphrase: {}", 
+            if has_api_key { "SET" } else { "NOT SET" },
+            if has_secret_key { "SET" } else { "NOT SET" },
+            if has_passphrase { "SET" } else { "NOT SET" }
+        )
+    }
+    
+    /// Initialize logging system
+    #[pyo3(name = "init_logging", signature = (level=None))]
+    fn init_logging(&self, level: Option<String>) -> PyResult<()> {
+        let log_level = match level.as_deref() {
+            Some("debug") | Some("DEBUG") => log::LevelFilter::Debug,
+            Some("info") | Some("INFO") => log::LevelFilter::Info,
+            Some("warn") | Some("WARN") => log::LevelFilter::Warn,
+            Some("error") | Some("ERROR") => log::LevelFilter::Error,
+            _ => log::LevelFilter::Info,
+        };
+        
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .filter_level(log_level)
+            .try_init()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to initialize logger: {}", e)))?;
+        
+        Ok(())
+    }
 }
+
+
 
 /// Python module entry point
 #[pymodule]

@@ -53,8 +53,15 @@ pub async fn connect_and_listen(
     symbol: &str,
     engine: OFIEngine,
 ) -> Result<TradingSignal> {
-    let url = Url::parse("wss://ws.bitget.com/v2/ws/public")?;
-    info!("[Rust] Attempting to connect to WebSocket for {}", symbol);
+    // Validate input parameters
+    if symbol.is_empty() || symbol.len() > 20 {
+        return Err(anyhow!("Invalid symbol: must be between 1-20 characters"));
+    }
+    
+    // Get the WebSocket URL from the engine's configuration
+    let config = engine.config();
+    let url = Url::parse(&config.websocket_url)?;
+    info!("[Rust] Attempting to connect to WebSocket for {} at {}", symbol, config.websocket_url);
     let (ws_stream, response) = connect_async(url.to_string()).await.map_err(|e| anyhow!("WebSocket connection failed: {}", e))?;
     info!("[Rust] WebSocket connected for {} with response: {:?}", symbol, response);
 
@@ -65,7 +72,7 @@ pub async fn connect_and_listen(
         "op": "subscribe",
         "args": [
             { "instType": "USDT-FUTURES", "channel": "books", "instId": symbol },
-            { "instType": "USDT-FUTURES", "channel": "trade", "instId": symbol }  // Correct format for trades
+            { "instType": "USDT-FUTURES", "channel": "trade", "instId": symbol }
         ]
     });
 
@@ -110,19 +117,29 @@ pub async fn connect_and_listen(
                                 info!("[Rust] Received order book update for {}: {} bids, {} asks", 
                                     symbol_from_msg, first_book.bids.len(), first_book.asks.len());
                                 
-                                let snapshot = OrderBookSnapshot {
-                                    symbol: symbol_from_msg.clone(),
-                                    bids: first_book.bids.iter().map(|b| OrderBookLevel {
-                                        price: b[0].parse().unwrap_or(0.0),
-                                        quantity: b[1].parse().unwrap_or(0.0),
-                                    }).collect(),
-                                    asks: first_book.asks.iter().map(|a| OrderBookLevel {
-                                        price: a[0].parse().unwrap_or(0.0),
-                                        quantity: a[1].parse().unwrap_or(0.0),
-                                    }).collect(),
-                                    timestamp: first_book.ts.parse().unwrap_or(0),
-                                };
-                                engine.update_order_book(snapshot).await;
+                                let bids: Result<Vec<OrderBookLevel>, anyhow::Error> = first_book.bids.iter().map(|b| {
+                                    let price = b[0].parse::<f64>().map_err(|e| anyhow::anyhow!("Invalid price format: {}", e))?;
+                                    let quantity = b[1].parse::<f64>().map_err(|e| anyhow::anyhow!("Invalid quantity format: {}", e))?;
+                                    Ok(OrderBookLevel { price, quantity })
+                                }).collect();
+                                
+                                let asks: Result<Vec<OrderBookLevel>, anyhow::Error> = first_book.asks.iter().map(|a| {
+                                    let price = a[0].parse::<f64>().map_err(|e| anyhow::anyhow!("Invalid price format: {}", e))?;
+                                    let quantity = a[1].parse::<f64>().map_err(|e| anyhow::anyhow!("Invalid quantity format: {}", e))?;
+                                    Ok(OrderBookLevel { price, quantity })
+                                }).collect();
+                                
+                                if let (Ok(bids), Ok(asks)) = (bids, asks) {
+                                    let snapshot = OrderBookSnapshot {
+                                        symbol: symbol_from_msg.clone(),
+                                        bids,
+                                        asks,
+                                        timestamp: first_book.ts.parse().unwrap_or(0),
+                                    };
+                                    engine.update_order_book(snapshot).await;
+                                } else {
+                                    error!("[Rust] Failed to parse order book prices/quantities for symbol {}", symbol_from_msg);
+                                }
                             }
                         } else {
                             error!("[Rust] Failed to parse book data: {:?}", book_data);
@@ -134,14 +151,23 @@ pub async fn connect_and_listen(
                         if let Ok(data) = trade_data {
                             info!("[Rust] Received {} trade updates for {}", data.len(), symbol_from_msg);
                             for trade in data {
-                                let trade_obj = TradeData {
-                                    symbol: symbol_from_msg.clone(),
-                                    price: trade.price.parse().unwrap_or(0.0),
-                                    quantity: trade.size.parse().unwrap_or(0.0),
-                                    side: trade.side.clone(),
-                                    timestamp: trade.ts.parse().unwrap_or(0),
-                                };
-                                engine.add_trade(trade_obj).await;
+                                if let (Ok(price), Ok(quantity), Ok(timestamp)) = (
+                                    trade.price.parse::<f64>(),
+                                    trade.size.parse::<f64>(),
+                                    trade.ts.parse::<u64>()
+                                ) {
+                                    let trade_obj = TradeData {
+                                        symbol: symbol_from_msg.clone(),
+                                        price,
+                                        quantity,
+                                        side: trade.side.clone(),
+                                        timestamp,
+                                    };
+                                    engine.add_trade(trade_obj).await;
+                                } else {
+                                    error!("[Rust] Failed to parse trade data for symbol {}: price={}, size={}, ts={}", 
+                                           symbol_from_msg, trade.price, trade.size, trade.ts);
+                                }
                             }
                         } else {
                             error!("[Rust] Failed to parse trade data: {:?}", trade_data);

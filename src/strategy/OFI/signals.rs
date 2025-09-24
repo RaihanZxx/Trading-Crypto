@@ -54,7 +54,7 @@ impl TradingSignal {
 }
 
 /// Strategy parameters
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyParams {
     pub imbalance_threshold: f64,     // Threshold for detecting imbalances
     pub absorption_threshold: f64,    // Threshold for detecting absorption
@@ -62,22 +62,14 @@ pub struct StrategyParams {
     pub lookback_period_ms: u64,      // Lookback period in milliseconds
 }
 
-impl Default for StrategyParams {
-    fn default() -> Self {
-        Self {
-            imbalance_threshold: 3.0,
-            absorption_threshold: 1000.0,
-            delta_threshold: 50000.0,
-            lookback_period_ms: 5000,
-        }
-    }
-}
-
 /// Detect trading signals based on OFI analysis
 pub fn detect_signals(
     order_book: &OrderBookSnapshot,
     trades: &[&TradeData],
     params: &StrategyParams,
+    strong_signal_confidence: f64,
+    reversal_signal_confidence: f64,
+    exhaustion_signal_confidence: f64,
 ) -> TradingSignal {
     // Calculate OFI metrics
     let ofi_metrics = calculate_ofi_metrics(order_book, trades, params.lookback_period_ms);
@@ -106,7 +98,7 @@ pub fn detect_signals(
             symbol: order_book.symbol.clone(),
             signal_type: SignalType::StrongBuy,
             price: current_price,
-            confidence: 0.9,
+            confidence: strong_signal_confidence,
             reason: "Stacked buy imbalances with strong positive delta".to_string(),
             timestamp: ofi_metrics.timestamp,
         };
@@ -118,7 +110,7 @@ pub fn detect_signals(
             symbol: order_book.symbol.clone(),
             signal_type: SignalType::StrongSell,
             price: current_price,
-            confidence: 0.9,
+            confidence: strong_signal_confidence,
             reason: "Stacked sell imbalances with strong negative delta".to_string(),
             timestamp: ofi_metrics.timestamp,
         };
@@ -131,7 +123,7 @@ pub fn detect_signals(
             symbol: order_book.symbol.clone(),
             signal_type: absorption_detected.2, // Use the signal type from absorption detection
             price: current_price,
-            confidence: 0.8,
+            confidence: reversal_signal_confidence,
             reason: absorption_detected.1, // Use the reason from absorption detection
             timestamp: ofi_metrics.timestamp,
         };
@@ -144,7 +136,7 @@ pub fn detect_signals(
             symbol: order_book.symbol.clone(),
             signal_type: SignalType::Sell,
             price: current_price,
-            confidence: 0.7,
+            confidence: exhaustion_signal_confidence,
             reason: "Potential exhaustion detected".to_string(),
             timestamp: ofi_metrics.timestamp,
         };

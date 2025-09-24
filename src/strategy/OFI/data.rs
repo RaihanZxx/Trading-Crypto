@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+use crate::config::OFIConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -63,11 +64,11 @@ impl TradeStorage {
         Self::default()
     }
 
-    pub fn add_trade(&mut self, trade: TradeData) {
+    pub fn add_trade(&mut self, trade: TradeData, config: &OFIConfig) {
         let entry = self.trades.entry(trade.symbol.clone()).or_default();
         entry.push(trade);
-        // Optional: Keep only the last N trades to prevent memory leak
-        if entry.len() > 200 {
+        // Keep only the last N trades to prevent memory leak, using config value
+        while entry.len() > config.trade_storage_limit {
             entry.remove(0);
         }
     }
