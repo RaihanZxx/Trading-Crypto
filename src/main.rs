@@ -153,8 +153,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Channel for communication from task analysis to main loop
     let (signal_tx, mut signal_rx) = mpsc::channel(100);
     
-    // HashMap to store handles of running tasks
-    let mut running_tasks: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
+    // HashMap to store handles of running tasks and their shutdown senders
+    let mut running_tasks: HashMap<String, (tokio::task::JoinHandle<()>, mpsc::Sender<()>)> = HashMap::new();
     
     // Timer for refreshing watchlist every 15 minutes (900 seconds)
     let mut watchlist_refresh_timer = interval(Duration::from_secs(900));
@@ -182,17 +182,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Compare new_candidates with running_tasks
                 // Stop tasks for symbols no longer in candidates
                 let mut to_remove = Vec::new();
-                for (symbol, handle) in &running_tasks {
+                for (symbol, (handle, shutdown_tx)) in &running_tasks {
                     if !new_candidates.contains(symbol) {
-                        println!("[SENTINEL] Menghentikan task untuk: {}", symbol);
-                        handle.abort();
+                        println!("[SENTINEL] Mengirim sinyal shutdown ke task: {}", symbol);
+                        
+                        if let Err(e) = shutdown_tx.send(()).await {
+                            eprintln!("[SENTINEL] Gagal mengirim sinyal shutdown ke {}: {}. Menghentikan paksa.", symbol, e);
+                            handle.abort(); // Use abort as fallback if channel is broken
+                        }
+                        
                         to_remove.push(symbol.clone());
                     }
                 }
                 
-                // Actually remove the handles
+                // Actually remove the handles after iteration
                 for symbol in to_remove {
-                    running_tasks.remove(&symbol);
+                    if let Some((handle, _)) = running_tasks.remove(&symbol) {
+                        // Optionally, wait for the task to finish gracefully
+                        let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+                    }
                 }
 
                 // Start tasks for new candidates not already running
@@ -200,8 +208,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if !running_tasks.contains_key(candidate) {
                         println!("[SENTINEL] Memulai task baru untuk: {}", candidate);
                         
-                        // Create shutdown channel for this task
-                        let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+                        // Create shutdown channel for this task and store the sender
+                        let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
                         
                         // Spawn the analysis task
                         let task_handle = spawn_analysis_task(
@@ -210,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             shutdown_rx
                         ).await;
                         
-                        running_tasks.insert(candidate.clone(), task_handle);
+                        running_tasks.insert(candidate.clone(), (task_handle, shutdown_tx));
                     }
                 }
             },
