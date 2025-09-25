@@ -4,7 +4,7 @@
 pub mod config;
 
 #[path = "../strategy/OFI/data.rs"]
-mod data;
+pub mod data;
 
 #[path = "../strategy/OFI/engine.rs"]
 pub mod engine;
@@ -13,7 +13,7 @@ pub mod engine;
 mod ofi;
 
 #[path = "../strategy/OFI/signals.rs"]
-mod signals;
+pub mod signals;
 
 #[path = "../connectors/websocket.rs"]
 mod websocket;

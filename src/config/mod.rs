@@ -38,6 +38,10 @@ struct OFITomlConfig {
     reversal_signal_confidence: Option<f64>,
     #[serde(rename = "exhaustion_signal_confidence")]
     exhaustion_signal_confidence: Option<f64>,
+    #[serde(rename = "market_condition_adaptation")]
+    market_condition_adaptation: Option<bool>,
+    #[serde(rename = "max_concurrent_websocket_connections")]
+    max_concurrent_websocket_connections: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +73,8 @@ pub struct OFIConfig {
     pub strong_signal_confidence: f64,
     pub reversal_signal_confidence: f64,
     pub exhaustion_signal_confidence: f64,
+    pub market_condition_adaptation: bool,
+    pub max_concurrent_websocket_connections: Option<usize>,  // Maximum concurrent WebSocket connections
 }
 
 impl Default for OFIConfig {
@@ -88,6 +94,8 @@ impl Default for OFIConfig {
             strong_signal_confidence: 0.0,  // Harus disediakan di config.toml
             reversal_signal_confidence: 0.0,  // Harus disediakan di config.toml
             exhaustion_signal_confidence: 0.0,  // Harus disediakan di config.toml
+            market_condition_adaptation: false,  // Harus disediakan di config.toml
+            max_concurrent_websocket_connections: None,  // Defaults to 20 in main.rs if not provided
         }
     }
 }
@@ -138,6 +146,12 @@ impl OFIConfig {
             }
             if let Some(confidence) = ofi_toml.exhaustion_signal_confidence {
                 config.exhaustion_signal_confidence = confidence;
+            }
+            if let Some(adaptation) = ofi_toml.market_condition_adaptation {
+                config.market_condition_adaptation = adaptation;
+            }
+            if let Some(max_connections) = ofi_toml.max_concurrent_websocket_connections {
+                config.max_concurrent_websocket_connections = Some(max_connections);
             }
         }
         
@@ -214,6 +228,8 @@ impl OFIConfig {
         if config.exhaustion_signal_confidence == 0.0 {
             return Err("exhaustion_signal_confidence must be provided in config.toml".into());
         }
+        
+        // market_condition_adaptation can be false by default, so no validation needed here
         
         Ok(config)
     }

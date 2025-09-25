@@ -124,6 +124,7 @@ pub async fn run_analysis_with_config(
         absorption_threshold: config.default_absorption_threshold,  // Use value from config
         delta_threshold,
         lookback_period_ms,
+        market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
     };
 
     // Create a new engine instance for this specific analysis run with configuration
@@ -211,6 +212,7 @@ pub async fn run_analysis(
         absorption_threshold: config.default_absorption_threshold,  // Use value from config
         delta_threshold,
         lookback_period_ms,
+        market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
     };
 
     // Create a new engine instance for this specific analysis run with configuration

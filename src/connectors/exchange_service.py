@@ -114,8 +114,22 @@ class BitgetExchangeService:
             
             # Check if request was successful
             if response is not None:
-                response.raise_for_status()
-                return response.json()
+                try:
+                    response.raise_for_status()
+                    return response.json()
+                except requests.exceptions.HTTPError as e:
+                    print(f"HTTP Error occurred: {e}")
+                    print(f"Response status code: {response.status_code}")
+                    print(f"Response text: {response.text}")
+                    print(f"Response headers: {dict(response.headers)}")
+                    # Return the error response to see what the API is returning
+                    try:
+                        error_response = response.json()
+                        print(f"Error response from API: {error_response}")
+                        return error_response
+                    except:
+                        print(f"Could not parse error response as JSON, returning raw text")
+                        return {"code": str(response.status_code), "message": response.text}
             else:
                 # Return a default error response instead of raising an exception
                 return {"code": "request_failed", "message": "Failed to make request"}
@@ -263,7 +277,12 @@ class BitgetExchangeService:
     
     def place_order(self, symbol: str, side: str, size: float, order_type: str = "limit", 
                    price: Optional[float] = None, time_in_force: str = "normal", 
-                   client_oid: Optional[str] = None) -> Dict:
+                   client_oid: Optional[str] = None, margin_mode: str = "crossed", 
+                   reduce_only: str = "NO", preset_stop_loss_price: Optional[float] = None,
+                   preset_stop_surplus_price: Optional[float] = None,
+                   preset_stop_loss_execute_price: Optional[float] = None,
+                   preset_stop_surplus_execute_price: Optional[float] = None,
+                   trade_side: Optional[str] = None) -> Dict:
         """
         Place an order on Bitget.
         
@@ -275,6 +294,13 @@ class BitgetExchangeService:
             price (float, optional): Price for limit orders
             time_in_force (str): "normal", "post_only", "gtc", etc.
             client_oid (str, optional): Client order ID
+            margin_mode (str): "crossed" or "isolated"
+            reduce_only (str): "YES" or "NO"
+            preset_stop_loss_price (float, optional): Stop loss price
+            preset_stop_surplus_price (float, optional): Take profit price
+            preset_stop_loss_execute_price (float, optional): Stop loss execution price
+            preset_stop_surplus_execute_price (float, optional): Take profit execution price
+            trade_side (str, optional): "open" or "close" - required for hedge mode (omit for one-way mode)
         
         Returns:
             Dict: Order response
@@ -288,22 +314,65 @@ class BitgetExchangeService:
         if order_type.lower() not in ["limit", "market"]:
             raise ValueError(f"Order type must be 'limit' or 'market', got: {order_type}")
         
-        # Prepare order data
+        # Determine margin coin from symbol (usually USDT for USDT-FUTURES)
+        margin_coin = "USDT"  # Default for USDT-FUTURES
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+        
+        # Prepare order data based on Bitget API v2 requirements
         data = {
             "symbol": symbol,
-            "productType": "USDT-FUTURES",
-            "marginMode": "crossed",  # or "fixed" based on your strategy
+            "productType": "USDT-FUTURES",  # This should match Bitget's requirements
+            "marginMode": margin_mode,  # "crossed" or "isolated"
+            "marginCoin": margin_coin,  # Required field
             "side": side.lower(),
-            "orderType": order_type.lower(),
-            "size": str(size),
-            "timeInForceValue": time_in_force
+            "orderType": order_type.lower(),  # "limit", "market", etc.
+            "size": str(size),  # Convert size to string as required by API
+            "reduceOnly": reduce_only  # "YES" or "NO"
         }
         
-        # Add price for limit orders
+        # Add tradeSide parameter only for hedge mode (omit for one-way mode)
+        # According to API docs: "Ignore the tradeSide parameter when position mode is in one-way-mode"
+        if trade_side is not None and trade_side.lower() in ["open", "close"]:
+            data["tradeSide"] = trade_side.lower()
+        
+        # Add time in force for limit orders (only for limit orders)
         if order_type.lower() == "limit":
+            # Map time_in_force to force parameter
+            if time_in_force.lower() in ["post_only"]:
+                data["force"] = "post_only"
+            elif time_in_force.lower() in ["ioc", "fok", "gtc"]:
+                data["force"] = time_in_force.lower()
+            else:
+                data["force"] = "gtc"  # default
+            
             if price is None:
                 raise ValueError("Price is required for limit orders")
-            data["price"] = str(price)
+            
+            # Format price according to contract requirements
+            # According to contract info, pricePlace is '4', so price should be rounded to 4 decimal places
+            formatted_price = round(price, 4)
+            data["price"] = str(formatted_price)
+        else:
+            # For market orders, ensure no force parameter is set (as it's only for limit orders)
+            # According to API docs: "Required if the orderType is limit"
+            if price is not None:
+                # For market orders, price should not be included
+                print(f"Warning: Price specified for market order, will be ignored")
+        
+        # Add preset stop loss and take profit prices if provided
+        if preset_stop_loss_price is not None:
+            formatted_sl_price = round(preset_stop_loss_price, 4)
+            data["presetStopLossPrice"] = str(formatted_sl_price)
+        if preset_stop_surplus_price is not None:
+            formatted_tp_price = round(preset_stop_surplus_price, 4)
+            data["presetStopSurplusPrice"] = str(formatted_tp_price)
+        if preset_stop_loss_execute_price is not None:
+            formatted_sl_exec_price = round(preset_stop_loss_execute_price, 4)
+            data["presetStopLossExecutePrice"] = str(formatted_sl_exec_price)
+        if preset_stop_surplus_execute_price is not None:
+            formatted_tp_exec_price = round(preset_stop_surplus_execute_price, 4)
+            data["presetStopSurplusExecutePrice"] = str(formatted_tp_exec_price)
         
         # Add client order ID if provided
         if client_oid:
@@ -321,7 +390,8 @@ class BitgetExchangeService:
             raise Exception(f"Failed to place order: {response}")
     
     def place_stop_market_order(self, symbol: str, side: str, trigger_price: float, 
-                               size: float, trigger_type: str = "market_price") -> Dict:
+                               size: float, trigger_type: str = "market_price", 
+                               margin_mode: str = "crossed") -> Dict:
         """
         Place a stop market order (conditional order) on Bitget.
         
@@ -331,11 +401,12 @@ class BitgetExchangeService:
             trigger_price (float): Price that triggers the order
             size (float): Order size in contracts
             trigger_type (str): "market_price" or "mark_price" - what price feeds the trigger
+            margin_mode (str): "crossed" or "isolated"
         
         Returns:
             Dict: Stop order response
         """
-        endpoint = "/api/v2/mix/order/place-trigger-order"
+        endpoint = "/api/v2/mix/order/place-trigger-order"  # Correct v2 endpoint for trigger orders
         
         # Validate required parameters
         if side.lower() not in ["buy", "sell"]:
@@ -344,22 +415,26 @@ class BitgetExchangeService:
         if trigger_type not in ["market_price", "mark_price"]:
             raise ValueError(f"Trigger type must be 'market_price' or 'mark_price', got: {trigger_type}")
         
-        # Determine trigger side based on what we want to close position
-        # If we have a long position (bought), we want to sell when price goes down (stop loss)
-        # If we have a short position (sold), we want to buy when price goes up (stop loss)
-        trigger_side = "close_long" if side.lower() == "sell" else "close_short"
+        # Determine margin coin from symbol (usually USDT for USDT-FUTURES)
+        margin_coin = "USDT"  # Default for USDT-FUTURES
+        if "USDC" in symbol:
+            margin_coin = "USDC"
         
-        # Prepare stop order data
+        # Format prices according to contract requirements
+        formatted_trigger_price = round(trigger_price, 4)
+        
+        # Prepare stop order data based on Bitget API v2 requirements for trigger orders
         data = {
             "symbol": symbol,
             "productType": "USDT-FUTURES",
-            "marginMode": "crossed",  # or "fixed" based on your strategy
-            "side": trigger_side,
-            "orderType": "market",
+            "marginMode": margin_mode,
+            "marginCoin": margin_coin,  # Required field
+            "side": side.lower(),
+            "orderType": "market",  # For stop market orders
             "triggerType": trigger_type,
-            "triggerPrice": str(trigger_price),
-            "size": str(size),
-            "executePrice": "",  # Empty for market orders
+            "triggerPrice": str(formatted_trigger_price),  # Convert to string as required by API
+            "size": str(size),  # Convert to string as required by API
+            "executePrice": str(formatted_trigger_price),  # For market execution when triggered, convert to string
         }
         
         response = self._make_request('POST', endpoint, data=data)
@@ -383,7 +458,7 @@ class BitgetExchangeService:
         Returns:
             List[Dict]: List of position data
         """
-        endpoint = "/api/v2/mix/position/single-position"
+        endpoint = "/api/v2/mix/position/all-position"
         
         params = {
             "productType": "USDT-FUTURES",
@@ -413,7 +488,7 @@ class BitgetExchangeService:
         Returns:
             List[Dict]: List of open order data
         """
-        endpoint = "/api/v2/mix/order/current-orders"
+        endpoint = "/api/v2/mix/order/orders-pending"
         
         params = {
             "productType": "USDT-FUTURES",
@@ -462,3 +537,220 @@ class BitgetExchangeService:
             return response.get('data', {})
         else:
             raise Exception(f"Failed to cancel order: {response}")
+    
+    def cancel_all_orders(self, symbol: str = None) -> Dict:
+        """
+        Cancel all open orders for a symbol or all symbols.
+        
+        Args:
+            symbol (str, optional): Trading symbol (cancel all orders for this symbol)
+                                   If None, cancel all orders for all symbols
+        
+        Returns:
+            Dict: Cancel all orders response
+        """
+        endpoint = "/api/v2/mix/order/cancel-all-orders"
+        
+        data = {
+            "productType": "USDT-FUTURES"
+        }
+        
+        if symbol:
+            data["symbol"] = symbol
+        
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to cancel all orders due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to cancel all orders: {response}")
+    
+    def get_order_detail(self, symbol: str, order_id: str = None, client_oid: str = None) -> Dict:
+        """
+        Get order detail by order ID or client OID.
+        
+        Args:
+            symbol (str): Trading symbol
+            order_id (str, optional): Order ID (either order_id or client_oid required)
+            client_oid (str, optional): Client order ID (either order_id or client_oid required)
+        
+        Returns:
+            Dict: Order detail
+        """
+        endpoint = "/api/v2/mix/order/detail"
+        
+        params = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES"
+        }
+        
+        # Add either order_id or client_oid
+        if order_id:
+            params["orderId"] = order_id
+        elif client_oid:
+            params["clientOid"] = client_oid
+        else:
+            raise ValueError("Either order_id or client_oid must be provided")
+        
+        response = self._make_request('GET', endpoint, params=params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get order detail due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to get order detail: {response}")
+
+    def place_limit_order(self, symbol: str, side: str, price: float, size: float, 
+                         time_in_force: str = "normal", reduce_only: bool = False, 
+                         client_oid: Optional[str] = None, margin_mode: str = "crossed",
+                         trade_side: Optional[str] = None) -> Dict:
+        """
+        Place a limit order on Bitget.
+
+        Args:
+            symbol (str): Trading symbol (e.g., "BTCUSDT")
+            side (str): "buy" or "sell"
+            price (float): Price for the limit order
+            size (float): Order size in contracts
+            time_in_force (str): "normal", "post_only", "gtc", etc.
+            reduce_only (bool): Whether the order is reduce-only
+            client_oid (str, optional): Client order ID
+            margin_mode (str): "crossed" or "isolated"
+            trade_side (str, optional): "open" or "close" - required for hedge mode (omit for one-way mode)
+
+        Returns:
+            Dict: Order response
+        """
+        endpoint = "/api/v2/mix/order/place-order"
+
+        # Validate required parameters
+        if side.lower() not in ["buy", "sell"]:
+            raise ValueError(f"Side must be 'buy' or 'sell', got: {side}")
+
+        # Determine margin coin from symbol (usually USDT for USDT-FUTURES)
+        margin_coin = "USDT"  # Default for USDT-FUTURES
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+
+        # Prepare order data based on Bitget API v2 requirements
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "marginMode": margin_mode,
+            "marginCoin": margin_coin,  # Required field
+            "side": side.lower(),
+            "orderType": "limit",
+            "size": str(size),  # Convert size to string as required by API
+            "price": str(price),  # Convert price to string as required by API
+            "reduceOnly": "YES" if reduce_only else "NO"
+        }
+
+        # Add tradeSide parameter only for hedge mode (omit for one-way mode)
+        # According to API docs: "Ignore the tradeSide parameter when position mode is in one-way-mode"
+        if trade_side is not None and trade_side.lower() in ["open", "close"]:
+            data["tradeSide"] = trade_side.lower()
+
+        # Format price according to contract requirements
+        # According to contract info, price should be rounded to appropriate decimal places
+        formatted_price = round(price, 4)
+        data["price"] = str(formatted_price)
+
+        # Add time in force for limit orders
+        if time_in_force.lower() in ["post_only"]:
+            data["force"] = "post_only"
+        elif time_in_force.lower() in ["ioc", "fok", "gtc"]:
+            data["force"] = time_in_force.lower()
+        else:
+            data["force"] = "gtc"  # default
+
+        # Add client order ID if provided
+        if client_oid:
+            data["clientOid"] = client_oid
+
+        response = self._make_request('POST', endpoint, data=data)
+
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to place limit order due to network error: {response.get('message')}")
+
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to place limit order: {response}")
+
+    def modify_order(self, symbol: str, order_id: str = None, client_oid: str = None, 
+                    new_size: float = None, new_price: float = None, 
+                    new_client_oid: str = None, new_preset_stop_loss_price: float = None,
+                    new_preset_stop_surplus_price: float = None) -> Dict:
+        """
+        Modify an existing order on Bitget.
+        
+        Args:
+            symbol (str): Trading symbol
+            order_id (str, optional): Order ID to modify (either order_id or client_oid required)
+            client_oid (str, optional): Client order ID to modify (either order_id or client_oid required)
+            new_size (float, optional): New order size (required if modifying price)
+            new_price (float, optional): New order price (required if modifying size)
+            new_client_oid (str, optional): New client order ID (required if modifying size/price)
+            new_preset_stop_loss_price (float, optional): New stop loss price (0 to remove)
+            new_preset_stop_surplus_price (float, optional): New take profit price (0 to remove)
+        
+        Returns:
+            Dict: Modify order response
+        """
+        endpoint = "/api/v2/mix/order/modify-order"
+        
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES"
+        }
+        
+        # Add order identification
+        if order_id:
+            data["orderId"] = order_id
+        elif client_oid:
+            data["clientOid"] = client_oid
+        else:
+            raise ValueError("Either orderId or clientOid must be provided")
+        
+        # When modifying size and price, both must be provided and newClientOid is required
+        size_price_provided = new_size is not None or new_price is not None
+        if size_price_provided:
+            if new_size is not None:
+                data["newSize"] = str(new_size)  # Convert to string as required by API
+            if new_price is not None:
+                data["newPrice"] = str(new_price)  # Convert to string as required by API
+            if new_client_oid:
+                data["newClientOid"] = new_client_oid
+            else:
+                # If we're modifying size/price, newClientOid is required
+                if new_size is not None or new_price is not None:
+                    raise ValueError("newClientOid is required when modifying size or price")
+        
+        # Add new preset stop loss price if provided
+        if new_preset_stop_loss_price is not None:
+            formatted_sl_price = round(new_preset_stop_loss_price, 4)
+            data["newPresetStopLossPrice"] = str(formatted_sl_price)
+            
+        # Add new preset take profit price if provided
+        if new_preset_stop_surplus_price is not None:
+            formatted_tp_price = round(new_preset_stop_surplus_price, 4)
+            data["newPresetStopSurplusPrice"] = str(formatted_tp_price)
+        
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to modify order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to modify order: {response}")

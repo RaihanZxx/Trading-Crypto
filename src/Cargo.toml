@@ -34,10 +34,14 @@ rand = "0.8"
 # TOML parsing
 toml = "0.8"
 
-# PyO3 for Python bindings
+# PyO3 for calling Python from Rust (binary)
 [dependencies.pyo3]
 version = "0.22"
-features = ["extension-module", "anyhow"]
+features = ["auto-initialize", "anyhow"]
+
+[[bin]]
+name = "sentinel"
+path = "main.rs"
 
 [lib]
 name = "ofi_engine_rust"
