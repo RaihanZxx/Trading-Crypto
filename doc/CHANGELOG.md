@@ -171,3 +171,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maintained secure credential handling for API integration
 - Added proper validation for all order parameters before submission to exchange
 - Enhanced input validation for position management functions
+
+## [0.1.5] - 2025-09-25
+
+### Fixed
+- **Critical Task Management Bug**: Fixed critical bug in task management where shutdown channels were immediately dropped and tasks were being forcefully aborted instead of gracefully shutting down. The fix includes:
+  - Properly storing shutdown channel senders alongside task handles in the HashMap
+  - Replacing `handle.abort()` calls with graceful shutdown signal transmission via channels
+  - Implementing proper resource cleanup when stopping tasks
+  - Adding timeout mechanism for task termination to prevent hanging
