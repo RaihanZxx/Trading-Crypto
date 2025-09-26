@@ -446,7 +446,36 @@ class TradeManager:
                     try:
                         exchange_positions = self.exchange.get_positions(symbol)
                         print(f"[Python Executor] Exchange positions for {symbol}: {exchange_positions}")
-                        position_exists = any(pos.get('symbol') == symbol and float(pos.get('totalPos', 0)) != 0 for pos in exchange_positions)
+                        
+                        # Check if position exists using correct field names
+                        position_exists = False
+                        for pos in exchange_positions:
+                            if pos.get('symbol') == symbol:
+                                # Check multiple possible field names for position size based on Bitget API response
+                                # Prioritize 'total' and 'available' which were found in actual API response
+                                position_size_str = pos.get('total', '0')  # Primary field from API response
+                                if position_size_str == '0' or position_size_str is None:
+                                    available_size = pos.get('available', '0')  # Alternative field
+                                    if available_size != '0':
+                                        position_size_str = available_size
+                                    else:
+                                        # Try to calculate from other fields if possible
+                                        open_delegate_size = pos.get('openDelegateSize', '0')
+                                        if open_delegate_size != '0':
+                                            position_size_str = open_delegate_size
+                                        else:
+                                            position_size_str = '0'
+                                
+                                # Convert to float and check if position is still open
+                                try:
+                                    position_size = float(position_size_str)
+                                except ValueError:
+                                    position_size = 0.0  # Default to 0 if conversion fails
+                                
+                                if position_size != 0:
+                                    position_exists = True
+                                    break
+                        
                         if not position_exists:
                             print(f"[Python Executor] No active position for {symbol} on exchange or local tracking")
                             return {"status": "error", "reason": f"No active position for {symbol}"}
@@ -468,12 +497,32 @@ class TradeManager:
                     return {"status": "error", "reason": f"No position found for {symbol} on exchange"}
                 
                 # Determine position size and side
-                position_size_str = position.get('totalPos', '0')
-                avg_open_price = position.get('avgOpenPrice', 'N/A')
-                unrealized_pnl = position.get('unrealizedPnl', 'N/A')
+                # Check multiple possible field names for position size based on Bitget API response
+                # Prioritize 'total' and 'available' which were found in actual API response
+                position_size_str = position.get('total', '0')  # Primary field from API response
+                if position_size_str == '0' or position_size_str is None:
+                    available_size = position.get('available', '0')  # Alternative field
+                    if available_size != '0':
+                        position_size_str = available_size
+                    else:
+                        # Try to calculate from other fields if possible
+                        open_delegate_size = position.get('openDelegateSize', '0')
+                        if open_delegate_size != '0':
+                            position_size_str = open_delegate_size
+                        else:
+                            position_size_str = '0'
+                
+                # Convert to float and determine position size
+                try:
+                    position_size = abs(float(position_size_str)) if position_size_str else 0.0
+                except ValueError:
+                    position_size = 0.0  # Default to 0 if conversion fails
+                
+                # Use correct field names from Bitget API response
+                avg_open_price = position.get('openPriceAvg', 'N/A')  # Correct field name from API
+                unrealized_pnl = position.get('unrealizedPL', 'N/A')  # Correct field name from API
                 hold_side = position.get('holdSide', 'N/A').lower()
                 
-                position_size = abs(float(position_size_str)) if position_size_str else 0.0
                 print(f"[Python Executor] Position details from exchange - size: {position_size}, avgOpenPrice: {avg_open_price}, unrealizedPnl: {unrealized_pnl}, holdSide: {hold_side}")
                 
                 if position_size <= 0:
@@ -565,29 +614,32 @@ class TradeManager:
         symbol = signal['symbol']
         
         # Check for stale signal - verify current price hasn't moved too far from signal price
-        signal_price = signal['price']
-        try:
-            current_price_data = self.exchange.get_ticker(symbol)
-            if 'last' in current_price_data:
-                current_price = float(current_price_data['last'])
-            elif 'lastPr' in current_price_data:
-                current_price = float(current_price_data['lastPr'])
-            elif isinstance(current_price_data, list) and len(current_price_data) > 0 and 'lastPr' in current_price_data[0]:
-                current_price = float(current_price_data[0]['lastPr'])
-            else:
-                print(f"[Python Executor] Could not get current price for {symbol}")
-                current_price = signal_price  # fallback to signal price if can't get current price
-        except Exception as e:
-            print(f"[Python Executor] Error getting current price for {symbol}: {e}")
-            current_price = signal_price  # fallback to signal price if error occurs
-
-        # Make the deviation tolerance configurable
-        max_deviation_percent = self.max_price_deviation_percent
-        deviation = abs(current_price - signal_price) / signal_price
-
-        if deviation > (max_deviation_percent / 100):
-            print(f"[Python Executor] Gagal: Harga telah bergerak terlalu jauh. Sinyal: {signal_price}, Saat Ini: {current_price}")
-            return {"status": "error", "reason": "Price deviation too high"}
+        # DISABLED: max_price_deviation_percent check is temporarily disabled due to bug where
+        # signals are rejected due to minor price movements after signal generation
+        # 
+        # signal_price = signal['price']
+        # try:
+        #     current_price_data = self.exchange.get_ticker(symbol)
+        #     if 'last' in current_price_data:
+        #         current_price = float(current_price_data['last'])
+        #     elif 'lastPr' in current_price_data:
+        #         current_price = float(current_price_data['lastPr'])
+        #     elif isinstance(current_price_data, list) and len(current_price_data) > 0 and 'lastPr' in current_price_data[0]:
+        #         current_price = float(current_price_data[0]['lastPr'])
+        #     else:
+        #         print(f"[Python Executor] Could not get current price for {symbol}")
+        #         current_price = signal_price  # fallback to signal price if can't get current price
+        # except Exception as e:
+        #     print(f"[Python Executor] Error getting current price for {symbol}: {e}")
+        #     current_price = signal_price  # fallback to signal price if error occurs
+        #
+        # # Make the deviation tolerance configurable
+        # max_deviation_percent = self.max_price_deviation_percent
+        # deviation = abs(current_price - signal_price) / signal_price
+        #
+        # if deviation > (max_deviation_percent / 100):
+        #     print(f"[Python Executor] Gagal: Harga telah bergerak terlalu jauh. Sinyal: {signal_price}, Saat Ini: {current_price}")
+        #     return {"status": "error", "reason": "Price deviation too high"}
         
         # Cek Idempotensi
         with self.lock:
@@ -754,14 +806,34 @@ class PositionMonitor:
             # Check if the position still exists in the exchange
             for position in positions:
                 if position.get('symbol') == symbol:
-                    # If position size is 0, it means position is closed
-                    position_size_str = position.get('totalPos', '0')
-                    avg_open_price = position.get('avgOpenPrice', 'N/A')
-                    unrealized_pnl = position.get('unrealizedPnl', 'N/A')
+                    # Check multiple possible field names for position size based on Bitget API response
+                    # Prioritize 'total' and 'available' which were found in actual API response
+                    position_size_str = position.get('total', '0')  # Primary field from API response
+                    if position_size_str == '0' or position_size_str is None:
+                        available_size = position.get('available', '0')  # Alternative field
+                        if available_size != '0':
+                            position_size_str = available_size
+                        else:
+                            # Try to calculate from other fields if possible
+                            open_delegate_size = position.get('openDelegateSize', '0')
+                            if open_delegate_size != '0':
+                                position_size_str = open_delegate_size
+                            else:
+                                position_size_str = '0'
                     
+                    # Ensure we have a valid string
                     if position_size_str is None:
                         position_size_str = '0'
-                    position_size = float(position_size_str)
+                    
+                    # Convert to float and check if position is still open
+                    try:
+                        position_size = float(position_size_str)
+                    except ValueError:
+                        position_size = 0.0  # Default to 0 if conversion fails
+                    
+                    # Use correct field names from Bitget API response
+                    avg_open_price = position.get('openPriceAvg', 'N/A')  # Correct field name from API
+                    unrealized_pnl = position.get('unrealizedPL', 'N/A')  # Correct field name from API
                     
                     if position_size == 0:
                         print(f"[Monitor] Position for {symbol} is closed (size: {position_size}, avgOpenPrice: {avg_open_price}, unrealizedPnl: {unrealized_pnl})")

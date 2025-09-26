@@ -305,14 +305,7 @@ class CryptoScreener:
             else:
                 print("❌ Failed to send results to Telegram")
         
-        # Step 6: Save results to database
-        try:
-            gainers_str = json.dumps(gainers)
-            losers_str = json.dumps(losers)
-            self.db.save_screener_result(timestamp, gainers_str, losers_str)
-            print("💾 Results saved to database")
-        except Exception as e:
-            print(f"❌ Error saving results to database: {e}")
+        
 
 def get_top_candidates(top_n: int = 5) -> List[str]:
     """

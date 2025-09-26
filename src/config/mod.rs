@@ -18,14 +18,6 @@ struct TomlConfig {
 struct OFITomlConfig {
     #[serde(rename = "websocket_url")]
     websocket_url: Option<String>,
-    #[serde(rename = "default_imbalance_threshold")]
-    default_imbalance_threshold: Option<f64>,
-    #[serde(rename = "default_absorption_threshold")]
-    default_absorption_threshold: Option<f64>,
-    #[serde(rename = "default_delta_threshold")]
-    default_delta_threshold: Option<f64>,
-    #[serde(rename = "default_lookback_period_ms")]
-    default_lookback_period_ms: Option<u64>,
     #[serde(rename = "analysis_duration_limit_ms")]
     analysis_duration_limit_ms: Option<u64>,
     #[serde(rename = "analysis_duration_per_cycle_ms")]
@@ -117,18 +109,6 @@ impl OFIConfig {
             if let Some(url) = ofi_toml.websocket_url {
                 config.websocket_url = url;
             }
-            if let Some(threshold) = ofi_toml.default_imbalance_threshold {
-                config.default_imbalance_threshold = threshold;
-            }
-            if let Some(threshold) = ofi_toml.default_absorption_threshold {
-                config.default_absorption_threshold = threshold;
-            }
-            if let Some(threshold) = ofi_toml.default_delta_threshold {
-                config.default_delta_threshold = threshold;
-            }
-            if let Some(period) = ofi_toml.default_lookback_period_ms {
-                config.default_lookback_period_ms = period;
-            }
             if let Some(limit) = ofi_toml.analysis_duration_limit_ms {
                 config.analysis_duration_limit_ms = limit;
             }
@@ -155,21 +135,19 @@ impl OFIConfig {
             }
         }
         
-        // If strategy parameters are not set in [ofi] section, try to get from [strategy] section for backward compatibility
-        if config.default_imbalance_threshold == 0.0 { // default value means it wasn't set from [ofi]
-            if let Some(strategy_toml) = toml_config.strategy_config {
-                if let Some(threshold) = strategy_toml.imbalance_threshold {
-                    config.default_imbalance_threshold = threshold;
-                }
-                if let Some(threshold) = strategy_toml.absorption_threshold {
-                    config.default_absorption_threshold = threshold;
-                }
-                if let Some(threshold) = strategy_toml.delta_threshold {
-                    config.default_delta_threshold = threshold;
-                }
-                if let Some(period) = strategy_toml.lookback_period_ms {
-                    config.default_lookback_period_ms = period;
-                }
+        // Get strategy parameters from [strategy] section for backward compatibility
+        if let Some(strategy_toml) = toml_config.strategy_config {
+            if let Some(threshold) = strategy_toml.imbalance_threshold {
+                config.default_imbalance_threshold = threshold;
+            }
+            if let Some(threshold) = strategy_toml.absorption_threshold {
+                config.default_absorption_threshold = threshold;
+            }
+            if let Some(threshold) = strategy_toml.delta_threshold {
+                config.default_delta_threshold = threshold;
+            }
+            if let Some(period) = strategy_toml.lookback_period_ms {
+                config.default_lookback_period_ms = period;
             }
         }
         

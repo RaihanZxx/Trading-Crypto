@@ -60,17 +60,6 @@ class Database:
                 )
             ''')
             
-            # Table for storing screener results
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS screener_results (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    top_gainers TEXT,
-                    top_losers TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
             # Table for storing trade execution logs for monitoring and analysis
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS trade_logs (
@@ -99,9 +88,6 @@ class Database:
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_open_prices_symbol_timestamp ON open_prices (symbol, timestamp)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_open_prices_timestamp ON open_prices (timestamp)')
             
-            # Index for screener_results table
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_screener_results_timestamp ON screener_results (timestamp)')
-            
             # Index for trade_logs table
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_trade_logs_symbol_status ON trade_logs (symbol, status)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_trade_logs_timestamp ON trade_logs (created_at)')
@@ -117,16 +103,6 @@ class Database:
                 VALUES (?, ?, ?)
             ''', (symbol, open_price, timestamp))
 
-    def get_open_price(self, symbol: str, date: str) -> Optional[float]:
-        """Get open price for a symbol on specific date."""
-        with self.get_cursor() as cursor:
-            cursor.execute('''
-                SELECT open_price FROM open_prices 
-                WHERE symbol = ? AND timestamp LIKE ?
-            ''', (symbol, f"{date}%"))
-            result = cursor.fetchone()
-            return result[0] if result else None
-
     def get_all_open_prices(self, date: str) -> Dict[str, float]:
         """Get all open prices for a specific date."""
         with self.get_cursor() as cursor:
@@ -136,25 +112,6 @@ class Database:
             ''', (f"{date}%",))
             results = cursor.fetchall()
             return {symbol: price for symbol, price in results}
-
-    def save_screener_result(self, timestamp: str, top_gainers: str, top_losers: str):
-        """Save screener result."""
-        with self.get_cursor() as cursor:
-            cursor.execute('''
-                INSERT INTO screener_results (timestamp, top_gainers, top_losers)
-                VALUES (?, ?, ?)
-            ''', (timestamp, top_gainers, top_losers))
-
-    def get_latest_screener_result(self) -> Optional[Tuple[str, str, str]]:
-        """Get the latest screener result."""
-        with self.get_cursor() as cursor:
-            cursor.execute('''
-                SELECT timestamp, top_gainers, top_losers 
-                FROM screener_results 
-                ORDER BY timestamp DESC 
-                LIMIT 1
-            ''')
-            return cursor.fetchone()
     
     def save_trade_log(self, symbol: str, signal_type: str, entry_price: float, 
                       position_size: float, entry_timestamp: str, status: str = 'open'):
