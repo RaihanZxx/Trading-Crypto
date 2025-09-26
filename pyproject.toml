@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "Trading-Crypto"
-version = "0.1.6"
+version = "0.1.7"
 authors = [
   { name="RaihanZxx", email="raihanzxzy@gmail.com" },
 ]
@@ -17,7 +17,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: Crypto :: Financial :: Investment",
-    "Development Status :: 4 - Beta",
+    "Development Status :: 4 - Release",
 ]
 
 dependencies = [

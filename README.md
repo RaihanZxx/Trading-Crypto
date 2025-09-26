@@ -50,17 +50,12 @@ Bot trading cryptocurrency berkinerja tinggi yang dibuat dengan Python dan Rust 
 
 3. **Aktifkan lingkungan virtual:**
    ```bash
-   source .venv/bin/activate  # Di Windows: .venv\Scripts\activate
+   source .venv/bin/activate  # Di Windows: .venv\\Scripts\\activate
    ```
-
-4. **Instal paket yang diperlukan:**
+   
+4. **Pastikan dependensi Python terinstal:**
    ```bash
    pip install -e .
-   ```
-
-5. **Bangun modul Rust (jika tersedia):**
-   ```bash
-   cd src && cargo build --release
    ```
 
 ---
@@ -79,32 +74,11 @@ Jalankan berbagai modul dengan perintah sederhana:
   # Menggunakan wrapper Python untuk mesin Rust
   python -c "from src.strategy.OFI.wrapper import analyze_symbol; signal = analyze_symbol('BTCUSDT'); print(signal)"
   ```
-
-- **Jalankan OFI Sentinel (daemon utama):**
+  
+- **Jalankan dalam mode produksi:**
   ```bash
-  cd src && cargo run
+  cd src && cargo build --release && cargo run --release
   ```
-
-## 🛡️ Manajemen Risiko
-
-Sistem ini dilengkapi dengan fitur manajemen risiko canggih:
-
-- **1% Risiko Per Perdagangan**: Ukuran posisi dihitung secara dinamis berdasarkan 1% dari equity akun
-- **Stop-Loss Otomatis**: Setiap perdagangan dilengkapi dengan stop-loss 1% dari harga entry
-- **Manajemen Posisi**: Sistem melacak semua posisi aktif dan memonitor statusnya secara real-time
-- **Batas Posisi Maksimum**: Konfigurasi untuk membatasi jumlah posisi yang dapat dibuka secara bersamaan
-- **Monitoring Otomatis**: Setiap posisi dipantau terus-menerus hingga ditutup
-
-### Konfigurasi Risiko di config.toml
-
-```toml
-[execution]
-# Manajemen risiko
-max_concurrent_positions = 5
-stop_loss_percent = 0.01  # 1% stop loss
-risk_percentage = 0.01    # 1% risiko per perdagangan dari total balance
-use_dynamic_risk = true   # Menggunakan equity akun secara dinamis
-```
 
 ---
 
@@ -137,7 +111,20 @@ Proyek ini terorganisir ke dalam komponen-komponen modular untuk kemudahan penge
     ├── database/           # Operasi database
     ├── execution_service/  # Service eksekusi perdagangan berbasis Python
     │   ├── __init__.py
-    │   └── manager.py
+    │   ├── manager.py
+    │   ├── monitoring/     # Modul monitoring posisi
+    │   │   ├── __init__.py
+    │   │   └── position_monitor.py
+    │   ├── persistence/    # Modul persistensi posisi
+    │   │   ├── __init__.py
+    │   │   └── position_storage.py
+    │   ├── risk/          # Modul manajemen risiko
+    │   │   ├── __init__.py
+    │   │   ├── portfolio_tracker.py
+    │   │   └── daily_loss_tracker.py
+    │   └── utils/         # Fungsi utilitas eksekusi
+    │       ├── __init__.py
+    │       └── trade_calculations.py
     ├── screener/           # Logika aplikasi Screener
     │   ├── __init__.py
     │   └── screener.py
@@ -148,22 +135,9 @@ Proyek ini terorganisir ke dalam komponen-komponen modular untuk kemudahan penge
     │       ├── ofi.rs      # Algoritma OFI
     │       ├── signals.rs  # Deteksi sinyal perdagangan
     │       └── websocket.rs # Koneksi WebSocket untuk data real-time
-    ├── test/               # File test
     ├── utils/              # Fungsi utilitas (Python & Rust)
-    │   └── lib.rs          # Definisi modul Rust
-    └── main.py             # Titik masuk aplikasi Python (lama)
+    │   ├── __init__.py
+    │   ├── lib.rs          # Definisi modul Rust
+    │   └── market_analyzer.py # Analisis kondisi pasar
+    └── test/               # File test
 ```
-
-- `src/main.rs`: OFI Sentinel - aplikasi daemon utama berbasis Rust yang mengelola analisis konkuren
-- `src/connectors/`: Konektor API exchange (Python & Rust)
-- `src/database/`: Operasi database
-- `src/execution_service/`: Service Python untuk eksekusi perdagangan dan manajemen risiko
-- `src/screener/`: Modul Screener untuk analisis pasar (sekarang berfungsi sebagai service layer)
-- `src/strategy/OFI/`: Implementasi lengkap strategi OFI (data, engine, algoritma, sinyal, WebSocket)
-- `src/test/`: File test
-- `src/utils/`: Fungsi utilitas dan definisi modul Rust
-- `data/`: File database SQLite (crypto_screener.db dan telegram_state.json)
-- `doc/`: Dokumentasi proyek
-- `config/`: File konfigurasi untuk parameter strategi
-
-Setiap modul di `src/` adalah paket Python dengan file `__init__.py` sendiri.
