@@ -145,6 +145,55 @@ class BitgetExchangeService:
         else:
             raise Exception(f"Failed to get futures symbols: {response}")
     
+    def get_symbol_info(self, symbol: str) -> Dict:
+        """Get specific symbol information including precision details."""
+        endpoint = "/api/v2/mix/market/contracts"
+        params = {"productType": "USDT-FUTURES"}
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get symbol info due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            symbols_data = response.get('data', [])
+            # Find the specific symbol
+            for sym_data in symbols_data:
+                if sym_data.get('symbol') == symbol:
+                    return sym_data
+            # If specific symbol not found, return empty dict
+            return {}
+        else:
+            raise Exception(f"Failed to get symbol info: {response}")
+
+    def _get_precision_for_symbol(self, symbol: str) -> Dict[str, int]:
+        """Get price and size precision for a specific symbol."""
+        try:
+            symbol_info = self.get_symbol_info(symbol)
+            if symbol_info:
+                # Extract precision from symbol info - these field names are based on typical exchange APIs
+                price_place = symbol_info.get('pricePlace', 4)  # Default to 4 decimal places
+                volume_place = symbol_info.get('volumePlace', 4)  # Default to 4 decimal places
+                return {
+                    'price_precision': int(price_place) if price_place else 4,
+                    'size_precision': int(volume_place) if volume_place else 4
+                }
+        except Exception:
+            # If we can't fetch precision, use defaults
+            pass
+        
+        # Default precision for different types of symbols
+        if 'SATS' in symbol:
+            # For SATS and other very low-value coins, use higher precision
+            return {'price_precision': 8, 'size_precision': 4}
+        elif 'BTC' in symbol:
+            return {'price_precision': 6, 'size_precision': 4}
+        elif 'ETH' in symbol:
+            return {'price_precision': 5, 'size_precision': 4}
+        else:
+            # Default for other symbols
+            return {'price_precision': 4, 'size_precision': 4}
+    
     def get_ticker(self, symbol: str) -> Dict:
         """Get ticker for a specific symbol."""
         endpoint = "/api/v2/mix/market/ticker"
@@ -330,8 +379,10 @@ class BitgetExchangeService:
                 raise ValueError("Price is required for limit orders")
             
             # Format price according to contract requirements
-            # According to contract info, pricePlace is '4', so price should be rounded to 4 decimal places
-            formatted_price = round(price, 4)
+            # Use dynamic precision based on the symbol instead of fixed 4 decimal places
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_price = round(price, price_precision)
             data["price"] = str(formatted_price)
         else:
             # For market orders, ensure no force parameter is set (as it's only for limit orders)
@@ -342,16 +393,28 @@ class BitgetExchangeService:
         
         # Add preset stop loss and take profit prices if provided
         if preset_stop_loss_price is not None:
-            formatted_sl_price = round(preset_stop_loss_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_sl_price = round(preset_stop_loss_price, price_precision)
             data["presetStopLossPrice"] = str(formatted_sl_price)
         if preset_stop_surplus_price is not None:
-            formatted_tp_price = round(preset_stop_surplus_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_tp_price = round(preset_stop_surplus_price, price_precision)
             data["presetStopSurplusPrice"] = str(formatted_tp_price)
         if preset_stop_loss_execute_price is not None:
-            formatted_sl_exec_price = round(preset_stop_loss_execute_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_sl_exec_price = round(preset_stop_loss_execute_price, price_precision)
             data["presetStopLossExecutePrice"] = str(formatted_sl_exec_price)
         if preset_stop_surplus_execute_price is not None:
-            formatted_tp_exec_price = round(preset_stop_surplus_execute_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_tp_exec_price = round(preset_stop_surplus_execute_price, price_precision)
             data["presetStopSurplusExecutePrice"] = str(formatted_tp_exec_price)
         
         # Add client order ID if provided
@@ -450,12 +513,18 @@ class BitgetExchangeService:
         
         # Add new preset stop loss price if provided
         if new_preset_stop_loss_price is not None:
-            formatted_sl_price = round(new_preset_stop_loss_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_sl_price = round(new_preset_stop_loss_price, price_precision)
             data["newPresetStopLossPrice"] = str(formatted_sl_price)
             
         # Add new preset take profit price if provided
         if new_preset_stop_surplus_price is not None:
-            formatted_tp_price = round(new_preset_stop_surplus_price, 4)
+            # Use dynamic precision based on the symbol
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_tp_price = round(new_preset_stop_surplus_price, price_precision)
             data["newPresetStopSurplusPrice"] = str(formatted_tp_price)
         
         response = self._make_request('POST', endpoint, data=data)
