@@ -11,6 +11,9 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use url::Url;
 use rustls::crypto::ring;
 
+// Import colored crate for modern colored logging
+use colored::*;
+
 // Initialize the crypto provider once for the main binary
 static INIT: Once = Once::new();
 
@@ -352,8 +355,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize crypto provider first
     initialize_crypto_provider();
     
-    // Initialize logging
-    env_logger::init();
+    // Initialize colored logging with modern styling
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            use std::io::Write;
+            
+            let timestamp = chrono::Local::now().format("%H:%M:%S");
+            let level = record.level();
+            
+            // Define modern colors for different log levels
+            let level_str = match level {
+                log::Level::Error => "ERROR".red().bold(),
+                log::Level::Warn => "WARN ".yellow().bold(),
+                log::Level::Info => "INFO ".green().bold(),
+                log::Level::Debug => "DEBUG".blue().bold(),
+                log::Level::Trace => "TRACE".cyan().bold(),
+            };
+            
+            let timestamp_str = format!("[{}]", timestamp).bright_black();
+            let target_str = format!("{}", record.target()).white();
+            
+            writeln!(
+                buf,
+                "{} [{}] [{}] {}",
+                timestamp_str,
+                level_str,
+                target_str,
+                record.args()
+            )
+        })
+        .init();
     
     // Load configuration to get max concurrent tasks
     let config = match ofi_engine_rust::config::OFIConfig::from_default_config() {

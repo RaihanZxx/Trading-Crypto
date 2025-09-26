@@ -25,6 +25,7 @@ use rustls::crypto::ring;
 use std::collections::HashMap;
 use std::sync::Once;
 use tokio;
+use chrono;
 
 // Initialize the crypto provider once
 static INIT: Once = Once::new();
@@ -231,7 +232,7 @@ impl OFIEngine {
         )
     }
     
-    /// Initialize logging system
+    /// Initialize logging system with modern colors
     #[pyo3(name = "init_logging", signature = (level=None))]
     fn init_logging(&self, level: Option<String>) -> PyResult<()> {
         let log_level = match level.as_deref() {
@@ -244,6 +245,34 @@ impl OFIEngine {
         
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
             .filter_level(log_level)
+            .format(|buf, record| {
+                use std::io::Write;
+                use colored::*;
+                
+                let timestamp = chrono::Local::now().format("%H:%M:%S");
+                let level = record.level();
+                
+                // Define modern colors for different log levels
+                let level_str = match level {
+                    log::Level::Error => "ERROR".red().bold(),
+                    log::Level::Warn => "WARN ".yellow().bold(),
+                    log::Level::Info => "INFO ".green().bold(),
+                    log::Level::Debug => "DEBUG".blue().bold(),
+                    log::Level::Trace => "TRACE".cyan().bold(),
+                };
+                
+                let timestamp_str = format!("[{}]", timestamp).bright_black();
+                let target_str = format!("{}", record.target()).white();
+                
+                writeln!(
+                    buf,
+                    "{} [{}] [{}] {}",
+                    timestamp_str,
+                    level_str,
+                    target_str,
+                    record.args()
+                )
+            })
             .try_init()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to initialize logger: {}", e)))?;
         

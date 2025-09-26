@@ -177,41 +177,107 @@ class TradeManager:
                     return {"status": "error", "reason": f"Position {symbol} not found"}
                 
                 position_data = self.active_positions[symbol]
-                order_id = position_data.get('main_order_id')
                 
-                if not order_id:
-                    print(f"[Python Executor] Order ID not found for position {symbol}")
-                    return {"status": "error", "reason": "Order ID not found for position"}
+                # Update stop-loss order if needed
+                if new_stop_loss_price is not None:
+                    sl_order_id = position_data.get('stop_loss_order_id')
+                    if sl_order_id:
+                        try:
+                            # Modify the existing stop-loss order
+                            result = self.exchange.modify_tpsl_order(
+                                order_id=sl_order_id,
+                                symbol=symbol,
+                                trigger_price=new_stop_loss_price,
+                                execute_price=0,  # market execution
+                                size=position_data['size'],  # use original position size
+                                trigger_type="mark_price"
+                            )
+                            
+                            # Update the local tracking data for stop loss
+                            self.active_positions[symbol]['stop_loss_price'] = new_stop_loss_price
+                            
+                            print(f"[Python Executor] Stop-loss updated successfully for {symbol}")
+                        except Exception as e:
+                            print(f"[Python Executor] Failed to update stop-loss for {symbol}: {e}")
+                            return {"status": "error", "reason": f"Failed to update stop-loss: {e}"}
+                    else:
+                        print(f"[Python Executor] No stop-loss order ID found for {symbol}, creating new one...")
+                        # Create a new stop-loss order if none exists
+                        try:
+                            hold_side = "buy" if position_data['side'] == 'buy' else 'sell'
+                            sl_result = self.exchange.place_tpsl_order(
+                                symbol=symbol,
+                                plan_type="loss_plan",
+                                trigger_price=new_stop_loss_price,
+                                execute_price=0,  # market execution
+                                hold_side=hold_side,
+                                size=position_data['size'],
+                                trigger_type="mark_price"
+                            )
+                            new_sl_order_id = sl_result.get('orderId')
+                            self.active_positions[symbol]['stop_loss_order_id'] = new_sl_order_id
+                            self.active_positions[symbol]['stop_loss_price'] = new_stop_loss_price
+                            
+                            print(f"[Python Executor] New stop-loss order created for {symbol} with ID: {new_sl_order_id}")
+                        except Exception as e:
+                            print(f"[Python Executor] Failed to create stop-loss for {symbol}: {e}")
+                            return {"status": "error", "reason": f"Failed to create stop-loss: {e}"}
                 
-                # Call the exchange to update the SL/TP
-                result = self.exchange.modify_order(
-                    symbol=symbol,
-                    order_id=order_id,
-                    new_preset_stop_loss_price=new_stop_loss_price,
-                    new_preset_stop_surplus_price=new_take_profit_price
-                )
+                # Update take-profit order if needed
+                if new_take_profit_price is not None:
+                    tp_order_id = position_data.get('take_profit_order_id')
+                    if tp_order_id:
+                        try:
+                            # Modify the existing take-profit order
+                            result = self.exchange.modify_tpsl_order(
+                                order_id=tp_order_id,
+                                symbol=symbol,
+                                trigger_price=new_take_profit_price,
+                                execute_price=0,  # market execution
+                                size=position_data['size'],  # use original position size
+                                trigger_type="mark_price"
+                            )
+                            
+                            # Update the local tracking data for take profit
+                            self.active_positions[symbol]['take_profit_price'] = new_take_profit_price
+                            
+                            print(f"[Python Executor] Take-profit updated successfully for {symbol}")
+                        except Exception as e:
+                            print(f"[Python Executor] Failed to update take-profit for {symbol}: {e}")
+                            return {"status": "error", "reason": f"Failed to update take-profit: {e}"}
+                    else:
+                        print(f"[Python Executor] No take-profit order ID found for {symbol}, creating new one...")
+                        # Create a new take-profit order if none exists
+                        try:
+                            hold_side = "buy" if position_data['side'] == 'buy' else 'sell'
+                            tp_result = self.exchange.place_tpsl_order(
+                                symbol=symbol,
+                                plan_type="profit_plan",
+                                trigger_price=new_take_profit_price,
+                                execute_price=0,  # market execution
+                                hold_side=hold_side,
+                                size=position_data['size'],
+                                trigger_type="mark_price"
+                            )
+                            new_tp_order_id = tp_result.get('orderId')
+                            self.active_positions[symbol]['take_profit_order_id'] = new_tp_order_id
+                            self.active_positions[symbol]['take_profit_price'] = new_take_profit_price
+                            
+                            print(f"[Python Executor] New take-profit order created for {symbol} with ID: {new_tp_order_id}")
+                        except Exception as e:
+                            print(f"[Python Executor] Failed to create take-profit for {symbol}: {e}")
+                            return {"status": "error", "reason": f"Failed to create take-profit: {e}"}
                 
-                # If successful, update the local position data
-                if result and 'orderId' in result:
-                    # Update the local tracking data
-                    if new_stop_loss_price is not None:
-                        self.active_positions[symbol]['stop_loss_price'] = new_stop_loss_price
-                    if new_take_profit_price is not None:
-                        self.active_positions[symbol]['take_profit_price'] = new_take_profit_price
-                        
-                    # Persist the changes
-                    self._save_persisted_positions(self.positions_file, self.active_positions, self.lock)
-                    
-                    print(f"[Python Executor] SL/TP updated successfully for {symbol}")
-                    return {
-                        "status": "success",
-                        "message": f"SL/TP updated for {symbol}",
-                        "new_stop_loss": new_stop_loss_price,
-                        "new_take_profit": new_take_profit_price
-                    }
-                else:
-                    print(f"[Python Executor] Failed to update SL/TP for {symbol}, result: {result}")
-                    return {"status": "error", "reason": f"Failed to update SL/TP: {result}"}
+                # Persist the changes
+                self._save_persisted_positions(self.positions_file, self.active_positions, self.lock)
+                
+                print(f"[Python Executor] SL/TP updated successfully for {symbol}")
+                return {
+                    "status": "success",
+                    "message": f"SL/TP updated for {symbol}",
+                    "new_stop_loss": new_stop_loss_price,
+                    "new_take_profit": new_take_profit_price
+                }
                     
         except Exception as e:
             print(f"[Python Executor] Error updating SL/TP for {symbol}: {e}")
@@ -371,6 +437,37 @@ class TradeManager:
                         print(f"[Python Executor] Unable to determine position details for {symbol} from local tracking")
                         return {"status": "error", "reason": f"Unable to determine position details for {symbol}"}
 
+            # First, cancel any existing stop-loss and take-profit orders
+            with self.lock:
+                if symbol in self.active_positions:
+                    position_data = self.active_positions[symbol]
+                    
+                    # Cancel stop-loss order if it exists
+                    sl_order_id = position_data.get('stop_loss_order_id')
+                    if sl_order_id:
+                        try:
+                            self.exchange.cancel_tpsl_order(
+                                order_id=sl_order_id,
+                                symbol=symbol,
+                                plan_type="loss_plan"
+                            )
+                            print(f"[Python Executor] Cancelled stop-loss order {sl_order_id} for {symbol}")
+                        except Exception as e:
+                            print(f"[Python Executor] Error cancelling stop-loss order for {symbol}: {e}")
+                    
+                    # Cancel take-profit order if it exists
+                    tp_order_id = position_data.get('take_profit_order_id')
+                    if tp_order_id:
+                        try:
+                            self.exchange.cancel_tpsl_order(
+                                order_id=tp_order_id,
+                                symbol=symbol,
+                                plan_type="profit_plan"
+                            )
+                            print(f"[Python Executor] Cancelled take-profit order {tp_order_id} for {symbol}")
+                        except Exception as e:
+                            print(f"[Python Executor] Error cancelling take-profit order for {symbol}: {e}")
+
             # Place market order to close the position
             print(f"[Python Executor] Placing market order to close position - symbol: {symbol}, side: {close_side}, size: {position_size}")
             order_result = self.exchange.place_order(
@@ -386,6 +483,36 @@ class TradeManager:
                 # Remove from active positions if it exists in our tracking
                 with self.lock:
                     if symbol in self.active_positions:
+                        # Also cancel any pending stop-loss or take-profit orders (double check)
+                        position_data = self.active_positions[symbol]
+                        sl_order_id = position_data.get('stop_loss_order_id')
+                        tp_order_id = position_data.get('take_profit_order_id')
+                        
+                        # Cancel stop-loss order if it exists
+                        if sl_order_id:
+                            try:
+                                self.exchange.cancel_tpsl_order(
+                                    order_id=sl_order_id,
+                                    symbol=symbol,
+                                    plan_type="loss_plan"
+                                )
+                                print(f"[Python Executor] Cancelled stop-loss order {sl_order_id} for {symbol}")
+                            except Exception as e:
+                                print(f"[Python Executor] Error cancelling stop-loss order for {symbol}: {e}")
+                        
+                        # Cancel take-profit order if it exists
+                        if tp_order_id:
+                            try:
+                                self.exchange.cancel_tpsl_order(
+                                    order_id=tp_order_id,
+                                    symbol=symbol,
+                                    plan_type="profit_plan"
+                                )
+                                print(f"[Python Executor] Cancelled take-profit order {tp_order_id} for {symbol}")
+                            except Exception as e:
+                                print(f"[Python Executor] Error cancelling take-profit order for {symbol}: {e}")
+                        
+                        # Remove from active positions
                         del self.active_positions[symbol]
                         print(f"[Python Executor] Successfully closed and removed {symbol} from active positions")
 
@@ -525,7 +652,7 @@ class TradeManager:
                 take_profit_price = price * (1 - (self.stop_loss_percent * risk_reward_ratio))
                 print(f"[Python Executor] Short position: take profit at {take_profit_price} (1:{risk_reward_ratio} risk-reward ratio)")
             
-            # Place the main market order with preset stop loss and take profit
+            # Place the main market order without preset SL/TP (we'll place them separately)
             if self.paper_trading:
                 # In paper trading mode, just simulate the order
                 order_id = f"SIM_{int(time.time())}_{symbol}"
@@ -539,17 +666,63 @@ class TradeManager:
                     'status': 'filled'
                 }
                 print(f"[Python Executor] PAPER TRADING: Simulated order placed for {symbol} - {side} {position_size} @ {price}")
+                
+                # Simulate SL and TP order IDs for paper trading
+                sl_order_id = f"SL_SIM_{int(time.time())}_{symbol}"
+                tp_order_id = f"TP_SIM_{int(time.time())}_{symbol}"
+                print(f"[Python Executor] PAPER TRADING: Simulated SL/TP orders created - SL: {sl_order_id}, TP: {tp_order_id}")
             else:
-                # Live trading mode
+                # Live trading mode - place main order first
                 order_result = self.exchange.place_order(
                     symbol=symbol,
                     side=side,
                     size=position_size,
                     order_type="market",  # Using market for immediate execution
-                    preset_stop_loss_price=stop_loss_price,
-                    preset_stop_surplus_price=take_profit_price,
                     trade_side=None  # Will be ignored by exchange service for one-way mode
                 )
+                
+                # Now place separate conditional stop-loss and take-profit orders
+                sl_order_id = None
+                tp_order_id = None
+                
+                # Determine hold side based on position side for one-way mode
+                hold_side = "buy" if side == "buy" else "sell"  # Use same values for one-way mode
+                
+                # Place stop-loss order as a separate conditional order
+                try:
+                    sl_result = self.exchange.place_tpsl_order(
+                        symbol=symbol,
+                        plan_type="loss_plan",  # stop loss plan
+                        trigger_price=stop_loss_price,
+                        execute_price=0,  # market execution
+                        hold_side=hold_side,
+                        size=position_size,
+                        trigger_type="mark_price"
+                    )
+                    sl_order_id = sl_result.get('orderId')
+                    print(f"[Python Executor] Stop-loss order placed for {symbol} with ID: {sl_order_id}")
+                except Exception as e:
+                    print(f"[Python Executor] Failed to place stop-loss order for {symbol}: {e}")
+                    # Don't fail the entire trade if SL order fails, just log it
+                    pass
+                
+                # Place take-profit order as a separate conditional order
+                try:
+                    tp_result = self.exchange.place_tpsl_order(
+                        symbol=symbol,
+                        plan_type="profit_plan",  # take profit plan
+                        trigger_price=take_profit_price,
+                        execute_price=0,  # market execution
+                        hold_side=hold_side,
+                        size=position_size,
+                        trigger_type="mark_price"
+                    )
+                    tp_order_id = tp_result.get('orderId')
+                    print(f"[Python Executor] Take-profit order placed for {symbol} with ID: {tp_order_id}")
+                except Exception as e:
+                    print(f"[Python Executor] Failed to place take-profit order for {symbol}: {e}")
+                    # Don't fail the entire trade if TP order fails, just log it
+                    pass
             
             if not order_result or 'orderId' not in order_result:
                 print(f"[Python Executor] Failed to place order for {symbol}, result: {order_result}")
@@ -567,6 +740,8 @@ class TradeManager:
                 "take_profit_price": take_profit_price,
                 "main_order_id": order_id,
                 "position_id": order_result.get('orderId', ''),  # Using main order ID as position ID
+                "stop_loss_order_id": sl_order_id,  # ID of the separate stop loss order
+                "take_profit_order_id": tp_order_id,  # ID of the separate take profit order
                 "timestamp": signal['timestamp']
             }
             

@@ -537,3 +537,239 @@ class BitgetExchangeService:
             return response.get('data', {})
         else:
             raise Exception(f"Failed to modify order: {response}")
+
+    def place_tpsl_order(self, symbol: str, plan_type: str, trigger_price: float, 
+                        execute_price: Optional[float] = None, hold_side: str = "long",
+                        size: Optional[float] = None, trigger_type: str = "mark_price",
+                        client_oid: Optional[str] = None) -> Dict:
+        """
+        Place a stop-profit or stop-loss order (TPSL - Take Profit & Stop Loss).
+        
+        Args:
+            symbol (str): Trading symbol
+            plan_type (str): "profit_plan", "loss_plan", "moving_plan", "pos_profit", "pos_loss"
+            trigger_price (float): Trigger price for the order
+            execute_price (float, optional): Execution price (0 for market order, >0 for limit)
+            hold_side (str): "long" or "short" for two-way mode, "buy"/"sell" for one-way mode
+            size (float, optional): Order size (required for profit_plan, loss_plan, moving_plan)
+            trigger_type (str): "fill_price" (transaction price) or "mark_price" (mark price)
+            client_oid (str, optional): Custom order ID
+            
+        Returns:
+            Dict: Response from the API
+        """
+        endpoint = "/api/v2/mix/order/place-tpsl-order"
+        
+        # Determine margin coin from symbol
+        margin_coin = "USDT"
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+            
+        # Prepare order data based on Bitget API v2 requirements
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",  # This should match Bitget's requirements
+            "marginCoin": margin_coin,     # Required field
+            "planType": plan_type,         # profit_plan, loss_plan, etc.
+            "triggerPrice": str(trigger_price),  # Convert to string as required by API
+            "holdSide": hold_side,         # long/short for two-way, buy/sell for one-way
+            "triggerType": trigger_type    # fill_price or mark_price
+        }
+        
+        # Add execute price (0 for market order)
+        if execute_price is not None:
+            data["executePrice"] = str(execute_price)
+        else:
+            data["executePrice"] = "0"  # Market order execution
+            
+        # Add size if required (for profit_plan, loss_plan, moving_plan)
+        if plan_type in ["profit_plan", "loss_plan", "moving_plan"]:
+            if size is None:
+                raise ValueError(f"Size is required for plan_type: {plan_type}")
+            data["size"] = str(size)
+            
+        # Add client order ID if provided
+        if client_oid:
+            data["clientOid"] = client_oid
+            
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to place TPSL order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to place TPSL order: {response}")
+
+    def modify_tpsl_order(self, order_id: Optional[str] = None, client_oid: Optional[str] = None,
+                         symbol: str = "", trigger_price: float = 0.0,
+                         execute_price: Optional[float] = None, size: Optional[float] = None,
+                         range_rate: Optional[str] = None, trigger_type: str = "mark_price") -> Dict:
+        """
+        Modify an existing stop-profit or stop-loss order (TPSL).
+        
+        Args:
+            order_id (str, optional): Order ID to modify (either order_id or client_oid required)
+            client_oid (str, optional): Client order ID to modify (either order_id or client_oid required)
+            symbol (str): Trading symbol
+            trigger_price (float): New trigger price
+            execute_price (float, optional): New execution price (0 for market order, >0 for limit)
+            size (float, optional): New order size
+            range_rate (str, optional): Callback range (for moving plans)
+            trigger_type (str): "fill_price" (transaction price) or "mark_price" (mark price)
+            
+        Returns:
+            Dict: Response from the API
+        """
+        endpoint = "/api/v2/mix/order/modify-tpsl-order"
+        
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "triggerPrice": str(trigger_price),  # Convert to string as required by API
+            "triggerType": trigger_type
+        }
+        
+        # Add order identification
+        if order_id:
+            data["orderId"] = order_id
+        elif client_oid:
+            data["clientOid"] = client_oid
+        else:
+            raise ValueError("Either orderId or clientOid must be provided")
+        
+        # Add optional fields if provided
+        if execute_price is not None:
+            data["executePrice"] = str(execute_price)
+        if size is not None:
+            data["size"] = str(size)
+        if range_rate is not None:
+            data["rangeRate"] = range_rate
+            
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to modify TPSL order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to modify TPSL order: {response}")
+
+    def cancel_tpsl_order(self, order_id: Optional[str] = None, client_oid: Optional[str] = None,
+                         symbol: str = "", plan_type: str = "profit_plan") -> Dict:
+        """
+        Cancel an existing stop-profit or stop-loss order (TPSL).
+        
+        Args:
+            order_id (str, optional): Order ID to cancel (either order_id or client_oid required)
+            client_oid (str, optional): Client order ID to cancel (either order_id or client_oid required)
+            symbol (str): Trading symbol
+            plan_type (str): "profit_plan", "loss_plan", "moving_plan", etc.
+            
+        Returns:
+            Dict: Response from the API
+        """
+        endpoint = "/api/v2/mix/order/cancel-tpsl-order"
+        
+        data = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "planType": plan_type
+        }
+        
+        # Add order identification
+        if order_id:
+            data["orderId"] = order_id
+        elif client_oid:
+            data["clientOid"] = client_oid
+        else:
+            raise ValueError("Either orderId or clientOid must be provided")
+            
+        response = self._make_request('POST', endpoint, data=data)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to cancel TPSL order due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', {})
+        else:
+            raise Exception(f"Failed to cancel TPSL order: {response}")
+
+    def get_tpsl_orders(self, symbol: str, plan_type: str = "profit_plan", is_stop: str = "yes") -> List[Dict]:
+        """
+        Get pending stop-profit or stop-loss orders (TPSL).
+        
+        Args:
+            symbol (str): Trading symbol
+            plan_type (str): "profit_plan", "loss_plan", "moving_plan", etc.
+            is_stop (str): "yes" or "no" - whether to get stop orders or regular orders
+            
+        Returns:
+            List[Dict]: List of pending TPSL orders
+        """
+        endpoint = "/api/v2/mix/order/orders-plan-pending"
+        
+        params = {
+            "symbol": symbol,
+            "productType": "USDT-FUTURES",
+            "planType": plan_type,
+            "isTrigger": is_stop  # yes for stop orders, no for regular
+        }
+        
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get TPSL orders due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            return response.get('data', [])
+        else:
+            raise Exception(f"Failed to get TPSL orders: {response}")
+
+    def get_history_positions(self, symbol: Optional[str] = None, start_time: Optional[int] = None, 
+                             end_time: Optional[int] = None, limit: int = 20) -> List[Dict]:
+        """
+        Get historical positions for analysis.
+        
+        Args:
+            symbol (str, optional): Specific symbol to query, or all if None
+            start_time (int, optional): Start time in milliseconds
+            end_time (int, optional): End time in milliseconds
+            limit (int): Number of records to return (default 20, max 100)
+            
+        Returns:
+            List[Dict]: List of historical position data
+        """
+        endpoint = "/api/v2/mix/position/history-position"
+        
+        params = {
+            "productType": "USDT-FUTURES",
+            "limit": str(limit)
+        }
+        
+        if symbol:
+            params["symbol"] = symbol
+            
+        if start_time:
+            params["startTime"] = str(start_time)
+        if end_time:
+            params["endTime"] = str(end_time)
+            
+        response = self._make_request('GET', endpoint, params)
+        
+        # Check for error responses
+        if isinstance(response, dict) and response.get('code') in ['connection_error', 'timeout_error', 'request_error', 'unknown_error']:
+            raise Exception(f"Failed to get history positions due to network error: {response.get('message')}")
+        
+        if response.get('code') == '00000':
+            # Return the list of positions from the response
+            data = response.get('data', {})
+            return data.get('list', []) if isinstance(data, dict) else []
+        else:
+            raise Exception(f"Failed to get history positions: {response}")

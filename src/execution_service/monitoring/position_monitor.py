@@ -72,6 +72,89 @@ class PositionMonitor:
         position_exists = self._check_position_status(symbol)
         print(f"[Monitor] Position exists check for {symbol}: {position_exists}")
         return not position_exists
+
+    def _get_current_price(self, symbol: str) -> Optional[float]:
+        """
+        Get the current price for a symbol.
+        
+        Args:
+            symbol: Trading symbol
+            
+        Returns:
+            Current price as float, or None if unable to get
+        """
+        try:
+            ticker_data = self.trade_manager.exchange.get_ticker(symbol)
+            if 'lastPr' in ticker_data:
+                return float(ticker_data['lastPr'])
+            elif 'last' in ticker_data:
+                return float(ticker_data['last'])
+            elif isinstance(ticker_data, list) and len(ticker_data) > 0 and 'lastPr' in ticker_data[0]:
+                return float(ticker_data[0]['lastPr'])
+        except Exception as e:
+            print(f"[Monitor] Error getting current price for {symbol}: {e}")
+        return None
+
+    def _detect_closing_reason(self, symbol: str, pos_details: Dict) -> str:
+        """
+        Detect the reason why a position was closed (SL, TP, or manual).
+        
+        Args:
+            symbol: Trading symbol
+            pos_details: Position details from tracking
+            
+        Returns:
+            String indicating the closing reason ('SL', 'TP', 'Manual', or 'Unknown')
+        """
+        try:
+            # Get recent closed positions from history
+            history_positions = self.trade_manager.exchange.get_history_positions(
+                symbol=symbol, 
+                limit=10  # Get last 10 positions to find the most recent one
+            )
+            
+            # Find the most recently closed position for this symbol
+            for pos in history_positions:
+                if (pos.get('symbol') == symbol and 
+                    float(pos.get('closeTotalPos', 0)) > 0):  # Position was closed
+                    
+                    pnl = float(pos.get('pnl', 0))
+                    net_profit = float(pos.get('netProfit', 0))
+                    
+                    # If PNL is negative, likely stopped out (SL)
+                    # If PNL is positive, likely take profit (TP)
+                    if pnl < 0:
+                        return 'SL'
+                    elif pnl > 0:
+                        return 'TP'
+                    else:
+                        # If PNL is exactly 0 or very close to 0, it might be manual closure
+                        return 'Manual'
+            
+            # If no history found, try to determine based on entry vs exit price comparison
+            current_price = self._get_current_price(symbol)
+            
+            if current_price and 'entry_price' in pos_details and 'side' in pos_details:
+                entry_price = pos_details['entry_price']
+                side = pos_details['side']
+                sl_price = pos_details.get('stop_loss_price', 0)
+                tp_price = pos_details.get('take_profit_price', 0)
+                
+                if side == 'buy':  # Long position
+                    if current_price <= sl_price:
+                        return 'SL'
+                    elif current_price >= tp_price:
+                        return 'TP'
+                else:  # Short position
+                    if current_price >= sl_price:
+                        return 'SL'
+                    elif current_price <= tp_price:
+                        return 'TP'
+            
+            return 'Unknown'
+        except Exception as e:
+            print(f"[Monitor] Error detecting closing reason for {symbol}: {e}")
+            return 'Unknown'
     
     def _update_trailing_stop(self, symbol: str):
         """Update trailing stop loss based on current price movement."""
@@ -164,6 +247,51 @@ class PositionMonitor:
                     # Log why the position was removed
                     if pos_details:
                         print(f"[Monitor] Position details for {symbol} at removal: size={pos_details.get('size')}, entry_price={pos_details.get('entry_price')}, side={pos_details.get('side')}, stop_loss_price={pos_details.get('stop_loss_price')}")
+                        
+                        # Determine the closing reason and send notification
+                        closing_reason = self._detect_closing_reason(symbol, pos_details)
+                        
+                        # Format the notification message for SL/TP events
+                        side_emoji = "🟢 LONG" if pos_details.get('side') == 'buy' else "🔴 SHORT"
+                        entry_price = pos_details.get('entry_price', 0)
+                        size = pos_details.get('size', 0)
+                        
+                        if closing_reason in ['SL', 'TP']:
+                            # Calculate profit/loss percentage
+                            exit_price = self._get_current_price(symbol) or entry_price
+                            if pos_details.get('side') == 'buy':  # Long position
+                                profit_loss_pct = ((exit_price - entry_price) / entry_price) * 100
+                            else:  # Short position
+                                profit_loss_pct = ((entry_price - exit_price) / entry_price) * 100
+                            
+                            # Format the SL/TP notification message
+                            if closing_reason == 'TP':
+                                message = f"""🎯 *POSITION CLOSED - TAKE PROFIT*
+
+┌─ {side_emoji} *{symbol}*
+├─ Entry: *{entry_price:.5f}*
+├─ Exit: *{exit_price:.5f}*
+├─ Size: *{size}*
+├─ P&L: *{profit_loss_pct:+.2f}%*
+├─ Status: *✅ TAKEN PROFIT*
+└─ Reason: *Target Reached*"""
+                            else:  # SL
+                                message = f"""🚨 *POSITION CLOSED - STOP LOSS*
+
+┌─ {side_emoji} *{symbol}*
+├─ Entry: *{entry_price:.5f}*
+├─ Exit: *{exit_price:.5f}*
+├─ Size: *{size}*
+├─ P&L: *{profit_loss_pct:+.2f}%*
+├─ Status: *❌ STOPPED OUT*
+└─ Reason: *Risk Management*"""
+                            
+                            # Send the notification to Telegram
+                            try:
+                                self.trade_manager.telegram_notifier.send_message(message)
+                                print(f"[Monitor] Telegram notification sent for {symbol} - closed by {closing_reason}")
+                            except Exception as e:
+                                print(f"[Monitor] Error sending Telegram notification for {symbol}: {e}")
                     
                     print(f"[Monitor] Stopped monitoring for {symbol}")
                     break
