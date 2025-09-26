@@ -60,7 +60,7 @@ Bot trading cryptocurrency berkinerja tinggi yang dibuat dengan Python dan Rust 
 
 5. **Bangun modul Rust (jika tersedia):**
    ```bash
-   cd src && maturin develop --release
+   cd src && cargo build --release
    ```
 
 ---
@@ -113,9 +113,9 @@ use_dynamic_risk = true   # Menggunakan equity akun secara dinamis
 Dokumentasi lengkap tersedia di direktori [doc/](doc/):
 
 - [DOCUMENTATION.md](doc/DOCUMENTATION.md) - Dokumentasi utama proyek
-- [CHANGELOG.md](doc/CHANGELOG.md) - Riwayat perubahan proyek
 - [CONTRIBUTING.md](doc/CONTRIBUTING.md) - Panduan kontribusi
 - [CODE_OF_CONDUCT.md](doc/CODE_OF_CONDUCT.md) - Kode etik kontributor
+- [SECURITY.md](doc/SECURITY.md) - Dokumentasi Security Project
 
 ---
 

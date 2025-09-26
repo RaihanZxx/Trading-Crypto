@@ -1,11 +1,3 @@
-# Trading Strategy Configuration
-[strategy]
-# OFI analysis parameters
-imbalance_threshold = 3.0
-absorption_threshold = 1000.0
-delta_threshold = 50000.0
-lookback_period_ms = 5000
-
 # Execution Configuration
 [execution]
 # Risk management parameters
@@ -13,6 +5,13 @@ max_concurrent_positions = 5
 stop_loss_percent = 0.01
 risk_percentage = 0.01  # 1% of wallet balance for dynamic risk
 use_dynamic_risk = true  # Set to true to use dynamic risk calculation
+paper_trading = false  # Set to false for live trading
+
+# Circuit breaker and portfolio risk parameters
+max_portfolio_risk_percentage = 0.05  # 5% of total portfolio
+max_daily_loss_percentage = 0.03  # 3% maximum daily loss
+max_circuit_breaker_duration = 3600  # 1 hour circuit breaker duration (in seconds)
+max_price_deviation_percent = 0.2  # 0.2% maximum allowable price deviation before rejecting signal
 
 # Screener Configuration
 [screener]
@@ -20,17 +19,21 @@ top_n_gainers = 10
 top_n_losers = 10
 min_price_change_percent = 1.0
 
+# Strategy Configuration
+[strategy]
+imbalance_threshold = 3.0
+absorption_threshold = 1000.0
+delta_threshold = 50000.0
+lookback_period_ms = 5000
+
 # OFI Engine Configuration
 [ofi]
 websocket_url = "wss://ws.bitget.com/v2/ws/public"
-default_imbalance_threshold = 3.0
-default_absorption_threshold = 1000.0
-default_delta_threshold = 50000.0
-default_lookback_period_ms = 5000
 analysis_duration_limit_ms = 3600000
-analysis_duration_per_cycle_ms = 5000  # Duration for each analysis cycle
+analysis_duration_per_cycle_ms = 5000 
 trade_storage_limit = 200
 strong_signal_confidence = 0.9
 reversal_signal_confidence = 0.8
 exhaustion_signal_confidence = 0.7
-
+market_condition_adaptation = false
+max_concurrent_websocket_connections = 15

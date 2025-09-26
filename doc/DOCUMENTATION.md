@@ -14,7 +14,6 @@
 11. [Error Handling](#error-handling)
 12. [Database Schema](#database-schema)
 13. [API Documentation](#api-documentation)
-14. [Changelog](#changelog)
 
 ## Overview
 
@@ -33,9 +32,9 @@ Trading-Crypto/
 │   ├── crypto_screener.db
 │   └── telegram_state.json
 ├── doc/
-│   ├── CHANGELOG.md
 │   ├── CODE_OF_CONDUCT.md
 │   ├── CONTRIBUTING.md
+│   ├──SECURITY.md
 │   └── DOCUMENTATION.md
 ├── src/
 │   ├── Cargo.toml
@@ -419,19 +418,6 @@ CREATE TABLE open_prices (
 );
 ```
 
-### screener_results table
-```sql
-CREATE TABLE screener_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT,
-    open_price REAL,
-    current_price REAL,
-    change_percent REAL,
-    result_type TEXT,  -- 'gainer' or 'loser'
-    timestamp DATETIME
-);
-```
-
 ## API Documentation
 
 ### exchange_service.py
@@ -464,7 +450,3 @@ CREATE TABLE screener_results (
 ### OFI Wrapper (Python)
 - `analyze_symbol(symbol, imbalance_ratio, analysis_duration_ms)`: Analyze a symbol for trading signals
 - `get_order_book(symbol)`: Get current order book for a symbol
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
