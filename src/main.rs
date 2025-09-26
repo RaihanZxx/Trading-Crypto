@@ -137,10 +137,10 @@ async fn analyze_symbol_data(
 
     // Create engine instance for this connection (moved outside reconnect loop to preserve state during reconnection)
     let params = StrategyParams {
-        imbalance_threshold: config.default_imbalance_threshold,
-        absorption_threshold: config.default_absorption_threshold,
-        delta_threshold: config.default_delta_threshold,
-        lookback_period_ms: config.default_lookback_period_ms,
+        imbalance_threshold: config.imbalance_threshold,
+        absorption_threshold: config.absorption_threshold,
+        delta_threshold: config.delta_threshold,
+        lookback_period_ms: config.lookback_period_ms,
         market_condition_multiplier: 1.0, // Default multiplier, will be updated based on market conditions if enabled
     };
     let engine = OFIEngine::new(params, config.clone());

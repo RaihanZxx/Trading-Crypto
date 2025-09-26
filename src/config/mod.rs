@@ -55,10 +55,10 @@ pub struct OFIConfig {
     pub secret_key: String,
     pub passphrase: String,
     pub websocket_url: String,
-    pub default_imbalance_threshold: f64,
-    pub default_absorption_threshold: f64,
-    pub default_delta_threshold: f64,
-    pub default_lookback_period_ms: u64,
+    pub imbalance_threshold: f64,
+    pub absorption_threshold: f64,
+    pub delta_threshold: f64,
+    pub lookback_period_ms: u64,
     pub analysis_duration_limit_ms: u64,
     pub analysis_duration_per_cycle_ms: u64,  // Duration for each analysis cycle
     pub trade_storage_limit: usize,
@@ -76,10 +76,10 @@ impl Default for OFIConfig {
             secret_key: String::new(),
             passphrase: String::new(),
             websocket_url: String::new(),  // Harus disediakan di config.toml
-            default_imbalance_threshold: 0.0,  // Harus disediakan di config.toml
-            default_absorption_threshold: 0.0,  // Harus disediakan di config.toml
-            default_delta_threshold: 0.0,  // Harus disediakan di config.toml
-            default_lookback_period_ms: 0,  // Harus disediakan di config.toml
+            imbalance_threshold: 0.0,  // Harus disediakan di config.toml
+            absorption_threshold: 0.0,  // Harus disediakan di config.toml
+            delta_threshold: 0.0,  // Harus disediakan di config.toml
+            lookback_period_ms: 0,  // Harus disediakan di config.toml
             analysis_duration_limit_ms: 0,  // Harus disediakan di config.toml
             analysis_duration_per_cycle_ms: 0,  // Harus disediakan di config.toml
             trade_storage_limit: 0,  // Harus disediakan di config.toml
@@ -138,16 +138,16 @@ impl OFIConfig {
         // Get strategy parameters from [strategy] section for backward compatibility
         if let Some(strategy_toml) = toml_config.strategy_config {
             if let Some(threshold) = strategy_toml.imbalance_threshold {
-                config.default_imbalance_threshold = threshold;
+                config.imbalance_threshold = threshold;
             }
             if let Some(threshold) = strategy_toml.absorption_threshold {
-                config.default_absorption_threshold = threshold;
+                config.absorption_threshold = threshold;
             }
             if let Some(threshold) = strategy_toml.delta_threshold {
-                config.default_delta_threshold = threshold;
+                config.delta_threshold = threshold;
             }
             if let Some(period) = strategy_toml.lookback_period_ms {
-                config.default_lookback_period_ms = period;
+                config.lookback_period_ms = period;
             }
         }
         
@@ -167,20 +167,20 @@ impl OFIConfig {
             return Err("websocket_url must be provided in config.toml".into());
         }
         
-        if config.default_imbalance_threshold == 0.0 {
-            return Err("default_imbalance_threshold must be provided in config.toml".into());
+        if config.imbalance_threshold == 0.0 {
+            return Err("imbalance_threshold must be provided in config.toml".into());
         }
         
-        if config.default_absorption_threshold == 0.0 {
-            return Err("default_absorption_threshold must be provided in config.toml".into());
+        if config.absorption_threshold == 0.0 {
+            return Err("absorption_threshold must be provided in config.toml".into());
         }
         
-        if config.default_delta_threshold == 0.0 {
-            return Err("default_delta_threshold must be provided in config.toml".into());
+        if config.delta_threshold == 0.0 {
+            return Err("delta_threshold must be provided in config.toml".into());
         }
         
-        if config.default_lookback_period_ms == 0 {
-            return Err("default_lookback_period_ms must be provided in config.toml".into());
+        if config.lookback_period_ms == 0 {
+            return Err("lookback_period_ms must be provided in config.toml".into());
         }
         
         if config.analysis_duration_limit_ms == 0 {
@@ -264,19 +264,19 @@ impl OFIConfig {
             return Err("WebSocket URL is required".to_string());
         }
         
-        if self.default_imbalance_threshold <= 0.0 {
+        if self.imbalance_threshold <= 0.0 {
             return Err("Imbalance threshold must be positive".to_string());
         }
         
-        if self.default_absorption_threshold <= 0.0 {
+        if self.absorption_threshold <= 0.0 {
             return Err("Absorption threshold must be positive".to_string());
         }
         
-        if self.default_delta_threshold <= 0.0 {
+        if self.delta_threshold <= 0.0 {
             return Err("Delta threshold must be positive".to_string());
         }
         
-        if self.default_lookback_period_ms == 0 {
+        if self.lookback_period_ms == 0 {
             return Err("Lookback period must be positive".to_string());
         }
         

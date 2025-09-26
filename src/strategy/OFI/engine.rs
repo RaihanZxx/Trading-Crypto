@@ -121,7 +121,7 @@ pub async fn run_analysis_with_config(
     // Create strategy parameters from input and configuration
     let params = crate::signals::StrategyParams {
         imbalance_threshold: imbalance_ratio,
-        absorption_threshold: config.default_absorption_threshold,  // Use value from config
+        absorption_threshold: config.absorption_threshold,  // Use value from config
         delta_threshold,
         lookback_period_ms,
         market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
@@ -209,7 +209,7 @@ pub async fn run_analysis(
     // Create strategy parameters from Python input and configuration
     let params = StrategyParams {
         imbalance_threshold: imbalance_ratio,
-        absorption_threshold: config.default_absorption_threshold,  // Use value from config
+        absorption_threshold: config.absorption_threshold,  // Use value from config
         delta_threshold,
         lookback_period_ms,
         market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
