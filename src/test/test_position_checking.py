@@ -7,7 +7,7 @@ from datetime import datetime
 # Tambahkan path untuk mengakses module
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from execution_service.manager import PositionMonitor
+from execution_service.monitoring import PositionMonitor
 from connectors.exchange_service import BitgetExchangeService
 
 def test_position_checking():

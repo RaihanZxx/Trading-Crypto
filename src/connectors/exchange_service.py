@@ -1,10 +1,11 @@
-import requests
-import hmac
+import os
 import hashlib
-import base64
-import time
+import hmac
 import json
-from typing import Dict, List, Optional
+import time
+import requests
+import base64
+from typing import Dict, Optional, Any, Union, List
 from urllib.parse import urlencode
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -398,10 +399,10 @@ class BitgetExchangeService:
         else:
             raise Exception(f"Failed to get positions: {response}")
 
-    def modify_order(self, symbol: str, order_id: str = None, client_oid: str = None, 
-                    new_size: float = None, new_price: float = None, 
-                    new_client_oid: str = None, new_preset_stop_loss_price: float = None,
-                    new_preset_stop_surplus_price: float = None) -> Dict:
+    def modify_order(self, symbol: str, order_id: Optional[str] = None, client_oid: Optional[str] = None, 
+                    new_size: Optional[float] = None, new_price: Optional[float] = None, 
+                    new_client_oid: Optional[str] = None, new_preset_stop_loss_price: Optional[float] = None,
+                    new_preset_stop_surplus_price: Optional[float] = None) -> Dict:
         """
         Modify an existing order on Bitget.
         

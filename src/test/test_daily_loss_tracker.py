@@ -6,7 +6,7 @@ from datetime import datetime
 # Tambahkan path untuk mengakses module
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from execution_service.manager import DailyLossTracker
+from execution_service.risk import DailyLossTracker
 from connectors.exchange_service import BitgetExchangeService
 
 def test_daily_loss_tracker():
@@ -22,7 +22,8 @@ def test_daily_loss_tracker():
         return False
     
     print("API credentials loaded")
-    print(f"API Key: {api_key[:5]}...{api_key[-3:] if api_key else ''}")
+    api_key_display = f"{api_key[:5]}...{api_key[-3:]}" if api_key else ""
+    print(f"API Key: {api_key_display}")
     
     # Initialize exchange service
     exchange = BitgetExchangeService(api_key, secret_key, passphrase)

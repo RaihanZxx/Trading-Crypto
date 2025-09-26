@@ -153,7 +153,7 @@ class Database:
             ''')
             return cursor.fetchall()
     
-    def get_trade_performance(self, symbol: str = None) -> dict:
+    def get_trade_performance(self, symbol: Optional[str] = None) -> dict:
         """Get performance metrics for trades."""
         with self.get_cursor() as cursor:
             if symbol:
@@ -176,7 +176,7 @@ class Database:
                 ''')
             result = cursor.fetchone()
             
-            if result and result[0] > 0:
+            if result is not None and result[0] > 0:
                 total_trades, winning_trades, avg_pnl, total_pnl = result
                 win_rate = winning_trades / total_trades if total_trades > 0 else 0
                 return {
