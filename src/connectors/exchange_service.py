@@ -174,9 +174,17 @@ class BitgetExchangeService:
                 # Extract precision from symbol info - these field names are based on typical exchange APIs
                 price_place = symbol_info.get('pricePlace', 4)  # Default to 4 decimal places
                 volume_place = symbol_info.get('volumePlace', 4)  # Default to 4 decimal places
+                # Extract min and max order sizes, and step size
+                min_size = symbol_info.get('minTradeAmount', 0)  # Minimum order size
+                max_size = symbol_info.get('maxTradeAmount', float('inf'))  # Maximum order size
+                step_size = symbol_info.get('quotePrecision', 1)  # Step size (this field might vary)
+                
                 return {
                     'price_precision': int(price_place) if price_place else 4,
-                    'size_precision': int(volume_place) if volume_place else 4
+                    'size_precision': int(volume_place) if volume_place else 4,
+                    'min_size': float(min_size) if min_size else 0,
+                    'max_size': float(max_size) if max_size else float('inf'),
+                    'step_size': float(step_size) if step_size else 1  # Default step size is 1
                 }
         except Exception:
             # If we can't fetch precision, use defaults
@@ -185,14 +193,72 @@ class BitgetExchangeService:
         # Default precision for different types of symbols
         if 'SATS' in symbol:
             # For SATS and other very low-value coins, use higher precision
-            return {'price_precision': 8, 'size_precision': 4}
+            return {
+                'price_precision': 8, 
+                'size_precision': 4,
+                'min_size': 0,
+                'max_size': float('inf'),
+                'step_size': 1
+            }
         elif 'BTC' in symbol:
-            return {'price_precision': 6, 'size_precision': 4}
+            return {
+                'price_precision': 6, 
+                'size_precision': 4,
+                'min_size': 0,
+                'max_size': float('inf'),
+                'step_size': 1
+            }
         elif 'ETH' in symbol:
-            return {'price_precision': 5, 'size_precision': 4}
+            return {
+                'price_precision': 5, 
+                'size_precision': 4,
+                'min_size': 0,
+                'max_size': float('inf'),
+                'step_size': 1
+            }
         else:
             # Default for other symbols
-            return {'price_precision': 4, 'size_precision': 4}
+            return {
+                'price_precision': 4, 
+                'size_precision': 4,
+                'min_size': 0,
+                'max_size': float('inf'),
+                'step_size': 1
+            }
+    
+    def _validate_and_round_size(self, symbol: str, size: float) -> float:
+        """Validate and round the order size according to symbol's rules."""
+        try:
+            precision_info = self._get_precision_for_symbol(symbol)
+            
+            # Check minimum size
+            min_size = precision_info.get('min_size', 0)
+            if size < min_size:
+                raise ValueError(f"Order size {size} is below minimum size {min_size} for {symbol}")
+            
+            # Check maximum size
+            max_size = precision_info.get('max_size', float('inf'))
+            if size > max_size:
+                raise ValueError(f"Order size {size} exceeds maximum size {max_size} for {symbol}")
+            
+            # Round to step size
+            step_size = precision_info.get('step_size', 1)
+            size_precision = precision_info.get('size_precision', 4)
+            
+            # Calculate the valid size based on step size
+            # (size // step_size) * step_size ensures the size is a multiple of step_size
+            import math
+            valid_size = math.floor(size / step_size) * step_size
+            
+            # Format to appropriate precision
+            valid_size = round(valid_size, size_precision)
+            
+            return valid_size
+            
+        except Exception as e:
+            print(f"Error validating and rounding size for {symbol}: {e}")
+            # As fallback, return the original size if we can't validate it
+            return size
     
     def get_ticker(self, symbol: str) -> Dict:
         """Get ticker for a specific symbol."""
@@ -347,7 +413,7 @@ class BitgetExchangeService:
         margin_coin = "USDT"  # Default for USDT-FUTURES
         if "USDC" in symbol:
             margin_coin = "USDC"
-        
+            
         # Prepare order data based on Bitget API v2 requirements
         data = {
             "symbol": symbol,
@@ -356,7 +422,7 @@ class BitgetExchangeService:
             "marginCoin": margin_coin,  # Required field
             "side": side.lower(),
             "orderType": order_type.lower(),  # "limit", "market", etc.
-            "size": str(size),  # Convert size to string as required by API
+            "size": str(validated_size),  # Convert validated size to string as required by API
             "reduceOnly": reduce_only  # "YES" or "NO"
         }
         
@@ -446,6 +512,7 @@ class BitgetExchangeService:
         
         params = {
             "productType": "USDT-FUTURES",
+            "marginCoin": "USDT"  # Required field
         }
         
         if symbol:
@@ -497,13 +564,27 @@ class BitgetExchangeService:
         else:
             raise ValueError("Either orderId or clientOid must be provided")
         
+        # Determine margin coin from symbol
+        margin_coin = "USDT"
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+            
+        # Add required fields
+        data["marginCoin"] = margin_coin  # Required field
+        
         # When modifying size and price, both must be provided and newClientOid is required
         size_price_provided = new_size is not None or new_price is not None
         if size_price_provided:
             if new_size is not None:
-                data["newSize"] = str(new_size)  # Convert to string as required by API
+                # Validate and round the new size according to symbol's rules
+                validated_new_size = self._validate_and_round_size(symbol, new_size)
+                data["newSize"] = str(validated_new_size)  # Convert validated size to string as required by API
             if new_price is not None:
-                data["newPrice"] = str(new_price)  # Convert to string as required by API
+                # Use dynamic precision based on the symbol for new price
+                symbol_precision = self._get_precision_for_symbol(symbol)
+                price_precision = symbol_precision['price_precision']
+                formatted_new_price = round(new_price, price_precision)
+                data["newPrice"] = str(formatted_new_price)  # Convert rounded price to string as required by API
             if new_client_oid:
                 data["newClientOid"] = new_client_oid
             else:
@@ -565,20 +646,29 @@ class BitgetExchangeService:
         if "USDC" in symbol:
             margin_coin = "USDC"
             
+        # Use dynamic precision based on the symbol for trigger price
+        symbol_precision = self._get_precision_for_symbol(symbol)
+        price_precision = symbol_precision['price_precision']
+        formatted_trigger_price = round(trigger_price, price_precision)
+        
         # Prepare order data based on Bitget API v2 requirements
         data = {
             "symbol": symbol,
             "productType": "USDT-FUTURES",  # This should match Bitget's requirements
             "marginCoin": margin_coin,     # Required field
             "planType": plan_type,         # profit_plan, loss_plan, etc.
-            "triggerPrice": str(trigger_price),  # Convert to string as required by API
+            "triggerPrice": str(formatted_trigger_price),  # Convert rounded price to string as required by API
             "holdSide": hold_side,         # long/short for two-way, buy/sell for one-way
             "triggerType": trigger_type    # fill_price or mark_price
         }
         
         # Add execute price (0 for market order)
         if execute_price is not None:
-            data["executePrice"] = str(execute_price)
+            # Use dynamic precision based on the symbol for execute price
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_execute_price = round(execute_price, price_precision)
+            data["executePrice"] = str(formatted_execute_price)
         else:
             data["executePrice"] = "0"  # Market order execution
             
@@ -586,7 +676,10 @@ class BitgetExchangeService:
         if plan_type in ["profit_plan", "loss_plan", "moving_plan"]:
             if size is None:
                 raise ValueError(f"Size is required for plan_type: {plan_type}")
-            data["size"] = str(size)
+            
+            # Validate and round the size according to symbol's rules
+            validated_size = self._validate_and_round_size(symbol, size)
+            data["size"] = str(validated_size)
             
         # Add client order ID if provided
         if client_oid:
@@ -625,10 +718,21 @@ class BitgetExchangeService:
         """
         endpoint = "/api/v2/mix/order/modify-tpsl-order"
         
+        # Determine margin coin from symbol
+        margin_coin = "USDT"
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+        
+        # Use dynamic precision based on the symbol for trigger price
+        symbol_precision = self._get_precision_for_symbol(symbol)
+        price_precision = symbol_precision['price_precision']
+        formatted_trigger_price = round(trigger_price, price_precision)
+        
         data = {
             "symbol": symbol,
             "productType": "USDT-FUTURES",
-            "triggerPrice": str(trigger_price),  # Convert to string as required by API
+            "marginCoin": margin_coin,  # Required field
+            "triggerPrice": str(formatted_trigger_price),  # Convert rounded price to string as required by API
             "triggerType": trigger_type
         }
         
@@ -642,9 +746,15 @@ class BitgetExchangeService:
         
         # Add optional fields if provided
         if execute_price is not None:
-            data["executePrice"] = str(execute_price)
+            # Use dynamic precision based on the symbol for execute price
+            symbol_precision = self._get_precision_for_symbol(symbol)
+            price_precision = symbol_precision['price_precision']
+            formatted_execute_price = round(execute_price, price_precision)
+            data["executePrice"] = str(formatted_execute_price)
         if size is not None:
-            data["size"] = str(size)
+            # Validate and round the size according to symbol's rules
+            validated_size = self._validate_and_round_size(symbol, size)
+            data["size"] = str(validated_size)
         if range_rate is not None:
             data["rangeRate"] = range_rate
             
@@ -675,9 +785,15 @@ class BitgetExchangeService:
         """
         endpoint = "/api/v2/mix/order/cancel-tpsl-order"
         
+        # Determine margin coin from symbol
+        margin_coin = "USDT"
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+            
         data = {
             "symbol": symbol,
             "productType": "USDT-FUTURES",
+            "marginCoin": margin_coin,  # Required field
             "planType": plan_type
         }
         
@@ -714,9 +830,15 @@ class BitgetExchangeService:
         """
         endpoint = "/api/v2/mix/order/orders-plan-pending"
         
+        # Determine margin coin from symbol
+        margin_coin = "USDT"
+        if "USDC" in symbol:
+            margin_coin = "USDC"
+            
         params = {
             "symbol": symbol,
             "productType": "USDT-FUTURES",
+            "marginCoin": margin_coin,  # Required field
             "planType": plan_type,
             "isTrigger": is_stop  # yes for stop orders, no for regular
         }
@@ -750,6 +872,7 @@ class BitgetExchangeService:
         
         params = {
             "productType": "USDT-FUTURES",
+            "marginCoin": "USDT",  # Required field
             "limit": str(limit)
         }
         
