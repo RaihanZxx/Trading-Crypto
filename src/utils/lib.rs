@@ -16,7 +16,7 @@ mod ofi;
 pub mod signals;
 
 #[path = "../connectors/websocket.rs"]
-mod websocket;
+pub mod websocket;
 
 #[path = "position_monitor.rs"]
 pub mod position_monitor;

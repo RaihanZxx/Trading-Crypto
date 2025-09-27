@@ -166,7 +166,7 @@ class BitgetExchangeService:
         else:
             raise Exception(f"Failed to get symbol info: {response}")
 
-    def _get_precision_for_symbol(self, symbol: str) -> Dict[str, int]:
+    def _get_precision_for_symbol(self, symbol: str) -> Dict[str, Union[int, float]]:
         """Get price and size precision for a specific symbol."""
         try:
             symbol_info = self.get_symbol_info(symbol)
@@ -251,7 +251,7 @@ class BitgetExchangeService:
             valid_size = math.floor(size / step_size) * step_size
             
             # Format to appropriate precision
-            valid_size = round(valid_size, size_precision)
+            valid_size = round(valid_size, int(size_precision))
             
             return valid_size
             
@@ -451,7 +451,7 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol instead of fixed 4 decimal places
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_price = round(price, price_precision)
+            formatted_price = round(price, int(price_precision))
             data["price"] = str(formatted_price)
         else:
             # For market orders, ensure no force parameter is set (as it's only for limit orders)
@@ -465,25 +465,25 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_sl_price = round(preset_stop_loss_price, price_precision)
+            formatted_sl_price = round(preset_stop_loss_price, int(price_precision))
             data["presetStopLossPrice"] = str(formatted_sl_price)
         if preset_stop_surplus_price is not None:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_tp_price = round(preset_stop_surplus_price, price_precision)
+            formatted_tp_price = round(preset_stop_surplus_price, int(price_precision))
             data["presetStopSurplusPrice"] = str(formatted_tp_price)
         if preset_stop_loss_execute_price is not None:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_sl_exec_price = round(preset_stop_loss_execute_price, price_precision)
+            formatted_sl_exec_price = round(preset_stop_loss_execute_price, int(price_precision))
             data["presetStopLossExecutePrice"] = str(formatted_sl_exec_price)
         if preset_stop_surplus_execute_price is not None:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_tp_exec_price = round(preset_stop_surplus_execute_price, price_precision)
+            formatted_tp_exec_price = round(preset_stop_surplus_execute_price, int(price_precision))
             data["presetStopSurplusExecutePrice"] = str(formatted_tp_exec_price)
         
         # Add client order ID if provided
@@ -586,7 +586,7 @@ class BitgetExchangeService:
                 # Use dynamic precision based on the symbol for new price
                 symbol_precision = self._get_precision_for_symbol(symbol)
                 price_precision = symbol_precision['price_precision']
-                formatted_new_price = round(new_price, price_precision)
+                formatted_new_price = round(new_price, int(price_precision))
                 data["newPrice"] = str(formatted_new_price)  # Convert rounded price to string as required by API
             if new_client_oid:
                 data["newClientOid"] = new_client_oid
@@ -600,7 +600,7 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_sl_price = round(new_preset_stop_loss_price, price_precision)
+            formatted_sl_price = round(new_preset_stop_loss_price, int(price_precision))
             data["newPresetStopLossPrice"] = str(formatted_sl_price)
             
         # Add new preset take profit price if provided
@@ -608,7 +608,7 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_tp_price = round(new_preset_stop_surplus_price, price_precision)
+            formatted_tp_price = round(new_preset_stop_surplus_price, int(price_precision))
             data["newPresetStopSurplusPrice"] = str(formatted_tp_price)
         
         response = self._make_request('POST', endpoint, data=data)
@@ -652,7 +652,7 @@ class BitgetExchangeService:
         # Use dynamic precision based on the symbol for trigger price
         symbol_precision = self._get_precision_for_symbol(symbol)
         price_precision = symbol_precision['price_precision']
-        formatted_trigger_price = round(trigger_price, price_precision)
+        formatted_trigger_price = round(trigger_price, int(price_precision))
         
         # Prepare order data based on Bitget API v2 requirements
         data = {
@@ -670,7 +670,7 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol for execute price
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_execute_price = round(execute_price, price_precision)
+            formatted_execute_price = round(execute_price, int(price_precision))
             data["executePrice"] = str(formatted_execute_price)
         else:
             data["executePrice"] = "0"  # Market order execution
@@ -729,7 +729,7 @@ class BitgetExchangeService:
         # Use dynamic precision based on the symbol for trigger price
         symbol_precision = self._get_precision_for_symbol(symbol)
         price_precision = symbol_precision['price_precision']
-        formatted_trigger_price = round(trigger_price, price_precision)
+        formatted_trigger_price = round(trigger_price, int(price_precision))
         
         data = {
             "symbol": symbol,
@@ -752,7 +752,7 @@ class BitgetExchangeService:
             # Use dynamic precision based on the symbol for execute price
             symbol_precision = self._get_precision_for_symbol(symbol)
             price_precision = symbol_precision['price_precision']
-            formatted_execute_price = round(execute_price, price_precision)
+            formatted_execute_price = round(execute_price, int(price_precision))
             data["executePrice"] = str(formatted_execute_price)
         if size is not None:
             # Validate and round the size according to symbol's rules

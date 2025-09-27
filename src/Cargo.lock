@@ -1050,10 +1050,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "chrono",
  "colored",
  "env_logger",
  "futures-util",
+ "http 1.3.1",
  "log",
  "pyo3",
  "rand 0.8.5",

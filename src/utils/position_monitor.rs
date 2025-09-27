@@ -34,6 +34,11 @@ impl PositionMonitorService {
         println!("[POSITION MONITOR] Checking positions...");
         
         Python::with_gil(|py| -> PyResult<()> {
+            // Add the current directory to Python's path so it can find local modules
+            let sys = PyModule::import_bound(py, "sys")?;
+            let sys_path = sys.getattr("path")?;
+            sys_path.call_method1("insert", (0, "."))?;
+            
             let trade_manager = PyModule::import_bound(py, "execution_service.manager")?;
             
             // Call the get_active_positions method
@@ -88,6 +93,39 @@ impl PositionMonitorService {
             }
             
             Ok(())
-        }).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        }).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>) // Remove the ? here
+    }
+
+    /// Check if a position exists for a given symbol by calling Python TradeManager
+    pub async fn check_position_exists(&self, symbol: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        println!("[POSITION MONITOR] Checking if position exists for symbol: {}", symbol);
+        
+        let result = Python::with_gil(|py| -> PyResult<bool> {
+            // Add the current directory to Python's path so it can find local modules
+            let sys = PyModule::import_bound(py, "sys")?;
+            let sys_path = sys.getattr("path")?;
+            sys_path.call_method1("insert", (0, "."))?;
+            
+            let trade_manager = PyModule::import_bound(py, "execution_service.manager")?;
+            
+            // Call the get_active_positions method
+            let result = trade_manager.getattr("trade_manager")?.getattr("get_active_positions")?.call0()?;
+            
+            // Extract the positions dictionary
+            let positions_dict = result.downcast::<pyo3::types::PyDict>()?;
+            
+            // Check if the symbol exists in the positions dictionary
+            let position_exists = positions_dict.contains(symbol)?;
+            
+            if position_exists {
+                println!("[POSITION MONITOR] Position found for symbol: {}", symbol);
+            } else {
+                println!("[POSITION MONITOR] No position found for symbol: {}", symbol);
+            }
+            
+            Ok(position_exists)
+        }).map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        
+        Ok(result)
     }
 }

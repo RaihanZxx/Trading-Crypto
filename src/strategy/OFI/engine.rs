@@ -5,7 +5,7 @@
 use crate::config::OFIConfig;
 use crate::data::{OrderBookSnapshot, OrderBookStorage, TradeData, TradeStorage};
 use crate::signals::{detect_signals, StrategyParams, TradingSignal};
-use crate::websocket::connect_and_listen;
+use crate::websocket::run_websocket_manager;
 use anyhow::{anyhow, Result};
 use log::{error, info};
 use std::sync::Arc;
@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use tokio::time::timeout;
 
 /// OFI Analysis Engine - acts as a state manager
+#[derive(Clone)]
 pub struct OFIEngine {
     order_book_storage: Arc<Mutex<OrderBookStorage>>,
     trade_storage: Arc<Mutex<TradeStorage>>,
@@ -88,72 +89,56 @@ pub async fn run_analysis_with_config(
     config: crate::config::OFIConfig,
 ) -> Result<Option<TradingSignal>> {
     // Input validation
-    if symbol.is_empty() {
-        return Err(anyhow!("Symbol cannot be empty"));
-    }
-    
-    if symbol.len() > 20 {
-        return Err(anyhow!("Symbol is too long: max 20 characters"));
-    }
-    
+    if symbol.is_empty() { return Err(anyhow!("Symbol cannot be empty")); }
+    if symbol.len() > 20 { return Err(anyhow!("Symbol is too long: max 20 characters")); }
     if !symbol.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/') {
         return Err(anyhow!("Symbol contains invalid characters"));
     }
-    
-    if imbalance_ratio <= 0.0 {
-        return Err(anyhow!("Imbalance ratio must be positive"));
-    }
-    
+    if imbalance_ratio <= 0.0 { return Err(anyhow!("Imbalance ratio must be positive")); }
     if duration_ms == 0 || duration_ms > config.analysis_duration_limit_ms {
         return Err(anyhow!("Duration must be between 1ms and {}ms", config.analysis_duration_limit_ms));
     }
-    
-    if delta_threshold <= 0.0 {
-        return Err(anyhow!("Delta threshold must be positive"));
-    }
-    
+    if delta_threshold <= 0.0 { return Err(anyhow!("Delta threshold must be positive")); }
     if lookback_period_ms == 0 || lookback_period_ms > 300000 { // 5 minutes max
         return Err(anyhow!("Lookback period must be between 1ms and 5 minutes"));
     }
 
     info!("[Rust] Starting analysis for {} for {}ms", symbol, duration_ms);
 
-    // Create strategy parameters from input and configuration
     let params = crate::signals::StrategyParams {
         imbalance_threshold: imbalance_ratio,
-        absorption_threshold: config.absorption_threshold,  // Use value from config
+        absorption_threshold: config.absorption_threshold,
         delta_threshold,
         lookback_period_ms,
-        market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
+        market_condition_multiplier: 1.0,
     };
 
-    // Create a new engine instance for this specific analysis run with configuration
     let engine = OFIEngine::new(params, config);
-
     let analysis_duration = Duration::from_millis(duration_ms);
 
-    // Run the WebSocket listener within a timeout
-    match timeout(analysis_duration, crate::websocket::connect_and_listen(&symbol, engine)).await {
-        Ok(Ok(final_signal)) => {
-            // The listener returned a signal within the time limit.
-            // Check if it's a real signal or a NoSignal from a clean exit.
-            if matches!(final_signal.signal_type, crate::signals::SignalType::NoSignal) {
+    // Run the WebSocket manager and wait for the first signal within a timeout
+    let mut signal_rx = run_websocket_manager(symbol.clone(), engine).await;
+
+    match timeout(analysis_duration, signal_rx.recv()).await {
+        Ok(Some(signal)) => {
+            // A signal was received within the time limit.
+            if matches!(signal.signal_type, crate::signals::SignalType::NoSignal) {
                 info!("[Rust] Analysis complete for {}. No significant signal found.", symbol);
                 Ok(None)
             } else {
-                info!("[Rust] Analysis complete for {}. Signal found: {:?}", symbol, final_signal.signal_type);
-                Ok(Some(final_signal))
+                info!("[Rust] Analysis complete for {}. Signal found: {:?}", symbol, signal.signal_type);
+                Ok(Some(signal))
             }
         }
-        Ok(Err(e)) => {
-            // The listener function itself returned an error (e.g., connection failed)
-            error!("[Rust] Error during WebSocket analysis for {}: {}", symbol, e);
-            Err(e)
+        Ok(None) => {
+            // The channel was closed without sending a signal.
+            error!("[Rust] WebSocket manager for {} shut down unexpectedly.", symbol);
+            Err(anyhow!("WebSocket manager shutdown"))
         }
         Err(_) => {
-            // The analysis timed out
+            // The recv() operation timed out.
             info!("[Rust] Analysis for {} timed out after {}ms. No signal generated.", symbol, duration_ms);
-            Ok(None) // It's not an error to time out, it just means no signal was found
+            Ok(None) // It's not an error to time out.
         }
     }
 }
@@ -166,37 +151,6 @@ pub async fn run_analysis(
     delta_threshold: f64,
     lookback_period_ms: u64,
 ) -> Result<Option<TradingSignal>> {
-    // Input validation
-    if symbol.is_empty() {
-        return Err(anyhow!("Symbol cannot be empty"));
-    }
-    
-    if symbol.len() > 20 {
-        return Err(anyhow!("Symbol is too long: max 20 characters"));
-    }
-    
-    if !symbol.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/') {
-        return Err(anyhow!("Symbol contains invalid characters"));
-    }
-    
-    if imbalance_ratio <= 0.0 {
-        return Err(anyhow!("Imbalance ratio must be positive"));
-    }
-    
-    if duration_ms == 0 || duration_ms > 3600000 { // 1 hour max
-        return Err(anyhow!("Duration must be between 1ms and 1 hour"));
-    }
-    
-    if delta_threshold <= 0.0 {
-        return Err(anyhow!("Delta threshold must be positive"));
-    }
-    
-    if lookback_period_ms == 0 || lookback_period_ms > 300000 { // 5 minutes max
-        return Err(anyhow!("Lookback period must be between 1ms and 5 minutes"));
-    }
-
-    info!("[Rust] Starting analysis for {} for {}ms", symbol, duration_ms);
-
     // Load configuration
     let config = match OFIConfig::from_default_config() {
         Ok(config) => config,
@@ -206,42 +160,13 @@ pub async fn run_analysis(
         }
     };
 
-    // Create strategy parameters from Python input and configuration
-    let params = StrategyParams {
-        imbalance_threshold: imbalance_ratio,
-        absorption_threshold: config.absorption_threshold,  // Use value from config
+    // Delegate to the detailed implementation
+    run_analysis_with_config(
+        symbol,
+        imbalance_ratio,
+        duration_ms,
         delta_threshold,
         lookback_period_ms,
-        market_condition_multiplier: 1.0, // Default multiplier, could be adjusted based on market conditions
-    };
-
-    // Create a new engine instance for this specific analysis run with configuration
-    let engine = OFIEngine::new(params, config);
-
-    let analysis_duration = Duration::from_millis(duration_ms);
-
-    // Run the WebSocket listener within a timeout
-    match timeout(analysis_duration, connect_and_listen(&symbol, engine)).await {
-        Ok(Ok(final_signal)) => {
-            // The listener returned a signal within the time limit.
-            // Check if it's a real signal or a NoSignal from a clean exit.
-            if matches!(final_signal.signal_type, crate::signals::SignalType::NoSignal) {
-                info!("[Rust] Analysis complete for {}. No significant signal found.", symbol);
-                Ok(None)
-            } else {
-                info!("[Rust] Analysis complete for {}. Signal found: {:?}", symbol, final_signal.signal_type);
-                Ok(Some(final_signal))
-            }
-        }
-        Ok(Err(e)) => {
-            // The listener function itself returned an error (e.g., connection failed)
-            error!("[Rust] Error during WebSocket analysis for {}: {}", symbol, e);
-            Err(e)
-        }
-        Err(_) => {
-            // The analysis timed out
-            info!("[Rust] Analysis for {} timed out after {}ms. No signal generated.", symbol, duration_ms);
-            Ok(None) // It's not an error to time out, it just means no signal was found
-        }
-    }
+        config,
+    ).await
 }
