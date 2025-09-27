@@ -106,6 +106,7 @@ use ofi_engine_rust::data::{OrderBookLevel, OrderBookSnapshot, TradeData};
 use ofi_engine_rust::signals::StrategyParams;
 use ofi_engine_rust::engine::OFIEngine;
 use ofi_engine_rust::config::OFIConfig;
+use ofi_engine_rust::position_monitor::PositionMonitorService;
 
 // Define the TradingSignal structure for the main flow (different from the library's TradingSignal used for internal analysis)
 #[derive(Debug, Clone)]
@@ -407,6 +408,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Timer for refreshing watchlist every 15 minutes (900 seconds)
     let mut watchlist_refresh_timer = interval(Duration::from_secs(900));
+    
+    // Start position monitoring service in a separate thread
+    println!("[SENTINEL] Starting position monitoring service...");
+    let monitor_service = PositionMonitorService::new(60); // Check every 60 seconds
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime for position monitor");
+        
+        rt.block_on(async {
+            monitor_service.start().await;
+        });
+    });
     
     println!("[SENTINEL] OFI Sentinel Dimulai. Menunggu siklus pertama...");
     println!("[SENTINEL] Maksimum koneksi WebSocket simultan: {}", max_concurrent_tasks);

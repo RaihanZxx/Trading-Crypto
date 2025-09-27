@@ -409,6 +409,9 @@ class BitgetExchangeService:
         if order_type.lower() not in ["limit", "market"]:
             raise ValueError(f"Order type must be 'limit' or 'market', got: {order_type}")
         
+        # Validate and round the size according to symbol's rules
+        validated_size = self._validate_and_round_size(symbol, size)
+        
         # Determine margin coin from symbol (usually USDT for USDT-FUTURES)
         margin_coin = "USDT"  # Default for USDT-FUTURES
         if "USDC" in symbol:
