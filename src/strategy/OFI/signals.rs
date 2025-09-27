@@ -5,6 +5,7 @@
 use crate::data::{OrderBookSnapshot, TradeData};
 use crate::ofi::{calculate_ofi_metrics, detect_absorption, detect_stacked_imbalances};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Represents a trading signal
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,6 +15,18 @@ pub enum SignalType {
     Buy,
     Sell,
     NoSignal,
+}
+
+impl fmt::Display for SignalType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SignalType::StrongBuy => write!(f, "StrongBuy"),
+            SignalType::StrongSell => write!(f, "StrongSell"),
+            SignalType::Buy => write!(f, "Buy"),
+            SignalType::Sell => write!(f, "Sell"),
+            SignalType::NoSignal => write!(f, "NoSignal"),
+        }
+    }
 }
 
 /// Trading signal with details

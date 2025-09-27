@@ -19,10 +19,18 @@ def _calculate_position_size(trade_manager, price: float) -> float:
         position_size = risk_amount / (price * trade_manager.stop_loss_percent)
         
         # Ensure minimum size based on exchange requirements
-        minimum_size = 0.001  # Adjust according to exchange minimum
+        # Use a more reasonable minimum based on typical exchange requirements
+        # For most exchange pairs, this will be around 0.001 to 0.1 contracts
+        minimum_size = 0.01  # More realistic minimum for typical trading pairs
         position_size = max(position_size, minimum_size)
         
-        return round(position_size, 3)  # Bulatkan ke 3 desimal
+        # For very low-value coins like MYX, we might need to adjust further
+        # If price is very low (indicating a small coin), adjust minimum accordingly
+        if price < 0.01:  # For low-cost coins like MYXUSDT
+            minimum_size = 1.0  # Minimum of 1 contract for low-value coins
+            position_size = max(position_size, minimum_size)
+        
+        return round(position_size, 4)  # Bulatkan ke 4 desimal for better precision
 
 
 def _calculate_active_positions_value(trade_manager) -> float:

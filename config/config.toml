@@ -2,13 +2,13 @@
 [execution]
 # Risk management parameters
 max_concurrent_positions = 5
-stop_loss_percent = 0.01
+stop_loss_percent = 0.02
 risk_percentage = 0.01  # 1% of wallet balance for dynamic risk
 use_dynamic_risk = true  # Set to true to use dynamic risk calculation
 paper_trading = false  # Set to false for live trading
 
 # Circuit breaker and portfolio risk parameters
-max_portfolio_risk_percentage = 0.05  # 5% of total portfolio
+max_portfolio_risk_percentage = 1  # 5% of total portfolio 0.05
 max_daily_loss_percentage = 0.03  # 3% maximum daily loss
 max_circuit_breaker_duration = 3600  # 1 hour circuit breaker duration (in seconds)
 max_price_deviation_percent = 0.2  # 0.2% maximum allowable price deviation before rejecting signal

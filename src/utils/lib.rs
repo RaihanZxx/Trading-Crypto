@@ -18,11 +18,7 @@ pub mod signals;
 #[path = "../connectors/websocket.rs"]
 pub mod websocket;
 
-#[path = "position_monitor.rs"]
-pub mod position_monitor;
-
 use crate::config::OFIConfig;
-use crate::position_monitor::PositionMonitorService;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustls::crypto::ring;
@@ -282,30 +278,7 @@ impl OFIEngine {
         
         Ok(())
     }
-    
-    /// Start the position monitoring service
-    #[pyo3(name = "start_position_monitor", signature = (interval_secs=60))]
-    fn start_position_monitor(&self, interval_secs: u64) -> PyResult<()> {
-        // Create the position monitor service
-        let monitor_service = PositionMonitorService::new(interval_secs);
-        
-        // Spawn the monitoring task in a separate thread
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to create Tokio runtime for position monitor");
-            
-            rt.block_on(async {
-                monitor_service.start().await;
-            });
-        });
-        
-        Ok(())
-    }
 }
-
-
 
 /// Python module entry point
 #[pymodule]

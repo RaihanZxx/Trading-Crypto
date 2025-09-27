@@ -171,22 +171,49 @@ class BitgetExchangeService:
         try:
             symbol_info = self.get_symbol_info(symbol)
             if symbol_info:
-                # Extract precision from symbol info - these field names are based on typical exchange APIs
-                price_place = symbol_info.get('pricePlace', 4)  # Default to 4 decimal places
-                volume_place = symbol_info.get('volumePlace', 4)  # Default to 4 decimal places
+                # Extract precision from symbol info - these field names are based on Bitget API v2
+                # Check for different possible field names based on API response
+                price_precision = symbol_info.get('pricePlace', 4)  # Price decimal places
+                if price_precision is None:
+                    price_precision = symbol_info.get('pricePrecision', 4)
+                
+                size_precision = symbol_info.get('volumePlace', 4)  # Size decimal places
+                if size_precision is None:
+                    size_precision = symbol_info.get('sizePrecision', 4)
+                    if size_precision is None:
+                        size_precision = symbol_info.get('quantityPrecision', 4)  # Alternative name
+                
                 # Extract min and max order sizes, and step size
                 min_size = symbol_info.get('minTradeAmount', 0)  # Minimum order size
+                if min_size is None:
+                    min_size = symbol_info.get('minTradeNum', 0)  # Alternative field name
+                    if min_size is None:
+                        min_size = symbol_info.get('minOrderSize', 0)  # Another alternative name
+                
                 max_size = symbol_info.get('maxTradeAmount', float('inf'))  # Maximum order size
-                step_size = symbol_info.get('quotePrecision', 1)  # Step size (this field might vary)
+                if max_size is None:
+                    max_size = symbol_info.get('maxTradeNum', float('inf'))  # Alternative field name
+                    if max_size is None:
+                        max_size = symbol_info.get('maxOrderSize', float('inf'))  # Another alternative name
+                
+                # Step size (minimum increment for orders)
+                step_size = symbol_info.get('quotePrecision', 1)  # Try quotePrecision first
+                if step_size is None:
+                    step_size = symbol_info.get('sizeStep', 1)  # Step size for order quantity
+                    if step_size is None:
+                        step_size = symbol_info.get('minTradeSize', 1)  # Alternative name
+                        if step_size is None:
+                            step_size = 1  # Default step size is 1
                 
                 return {
-                    'price_precision': int(price_place) if price_place else 4,
-                    'size_precision': int(volume_place) if volume_place else 4,
-                    'min_size': float(min_size) if min_size else 0,
-                    'max_size': float(max_size) if max_size else float('inf'),
-                    'step_size': float(step_size) if step_size else 1  # Default step size is 1
+                    'price_precision': int(price_precision) if price_precision is not None else 4,
+                    'size_precision': int(size_precision) if size_precision is not None else 4,
+                    'min_size': float(min_size) if min_size is not None else 0,
+                    'max_size': float(max_size) if max_size is not None else float('inf'),
+                    'step_size': float(step_size) if step_size is not None else 1  # Default step size is 1
                 }
-        except Exception:
+        except Exception as e:
+            print(f"Error fetching precision for {symbol}: {e}")
             # If we can't fetch precision, use defaults
             pass
         
@@ -196,34 +223,34 @@ class BitgetExchangeService:
             return {
                 'price_precision': 8, 
                 'size_precision': 4,
-                'min_size': 0,
+                'min_size': 0.1,  # Set a reasonable minimum for satoshi-based coins
                 'max_size': float('inf'),
-                'step_size': 1
+                'step_size': 0.1  # Set a reasonable step size
             }
         elif 'BTC' in symbol:
             return {
                 'price_precision': 6, 
                 'size_precision': 4,
-                'min_size': 0,
+                'min_size': 0.0001,  # Minimum for BTC pairs
                 'max_size': float('inf'),
-                'step_size': 1
+                'step_size': 0.0001  # Typical step size for BTC pairs
             }
         elif 'ETH' in symbol:
             return {
                 'price_precision': 5, 
                 'size_precision': 4,
-                'min_size': 0,
+                'min_size': 0.001,  # Minimum for ETH pairs
                 'max_size': float('inf'),
-                'step_size': 1
+                'step_size': 0.001  # Typical step size for ETH pairs
             }
         else:
-            # Default for other symbols
+            # Default for other symbols, including USDT pairs like MYXUSDT
             return {
                 'price_precision': 4, 
                 'size_precision': 4,
-                'min_size': 0,
+                'min_size': 0.001,  # Set minimum to avoid "size" errors
                 'max_size': float('inf'),
-                'step_size': 1
+                'step_size': 0.001  # Set step size to avoid "size" errors
             }
     
     def _validate_and_round_size(self, symbol: str, size: float) -> float:
@@ -234,12 +261,14 @@ class BitgetExchangeService:
             # Check minimum size
             min_size = precision_info.get('min_size', 0)
             if size < min_size:
-                raise ValueError(f"Order size {size} is below minimum size {min_size} for {symbol}")
+                print(f"Warning: Order size {size} is below minimum size {min_size} for {symbol}, adjusting to minimum size")
+                size = min_size
             
             # Check maximum size
             max_size = precision_info.get('max_size', float('inf'))
             if size > max_size:
-                raise ValueError(f"Order size {size} exceeds maximum size {max_size} for {symbol}")
+                print(f"Warning: Order size {size} exceeds maximum size {max_size} for {symbol}, adjusting to maximum size")
+                size = max_size
             
             # Round to step size
             step_size = precision_info.get('step_size', 1)
@@ -248,10 +277,23 @@ class BitgetExchangeService:
             # Calculate the valid size based on step size
             # (size // step_size) * step_size ensures the size is a multiple of step_size
             import math
+            # Use floor to ensure we stay within bounds
             valid_size = math.floor(size / step_size) * step_size
             
-            # Format to appropriate precision
+            # Format to appropriate precision - ensure we don't exceed the size precision
             valid_size = round(valid_size, int(size_precision))
+            
+            # Double-check that the rounded size is still within bounds
+            if valid_size < min_size and min_size > 0:
+                valid_size = min_size
+                print(f"Adjusted size to minimum after rounding: {valid_size}")
+            elif valid_size > max_size and max_size < float('inf'):
+                valid_size = max_size
+                print(f"Adjusted size to maximum after rounding: {valid_size}")
+            
+            # Ensure precision is not negative
+            precision = max(0, int(size_precision))
+            valid_size = round(valid_size, precision)
             
             return valid_size
             
@@ -412,6 +454,10 @@ class BitgetExchangeService:
         # Validate and round the size according to symbol's rules
         validated_size = self._validate_and_round_size(symbol, size)
         
+        # Ensure the size is greater than 0 after validation
+        if validated_size <= 0:
+            raise ValueError(f"Order size {validated_size} is not valid after validation for {symbol}")
+        
         # Determine margin coin from symbol (usually USDT for USDT-FUTURES)
         margin_coin = "USDT"  # Default for USDT-FUTURES
         if "USDC" in symbol:
@@ -425,7 +471,7 @@ class BitgetExchangeService:
             "marginCoin": margin_coin,  # Required field
             "side": side.lower(),
             "orderType": order_type.lower(),  # "limit", "market", etc.
-            "size": str(validated_size),  # Convert validated size to string as required by API
+            "size": f"{validated_size:.8f}".rstrip('0').rstrip('.'),  # Convert to string with proper precision and remove trailing zeros
             "reduceOnly": reduce_only  # "YES" or "NO"
         }
         
@@ -581,7 +627,7 @@ class BitgetExchangeService:
             if new_size is not None:
                 # Validate and round the new size according to symbol's rules
                 validated_new_size = self._validate_and_round_size(symbol, new_size)
-                data["newSize"] = str(validated_new_size)  # Convert validated size to string as required by API
+                data["newSize"] = f"{validated_new_size:.8f}".rstrip('0').rstrip('.')  # Convert to string with proper precision and remove trailing zeros
             if new_price is not None:
                 # Use dynamic precision based on the symbol for new price
                 symbol_precision = self._get_precision_for_symbol(symbol)
@@ -682,7 +728,7 @@ class BitgetExchangeService:
             
             # Validate and round the size according to symbol's rules
             validated_size = self._validate_and_round_size(symbol, size)
-            data["size"] = str(validated_size)
+            data["size"] = f"{validated_size:.8f}".rstrip('0').rstrip('.')  # Convert to string with proper precision and remove trailing zeros
             
         # Add client order ID if provided
         if client_oid:
@@ -757,7 +803,7 @@ class BitgetExchangeService:
         if size is not None:
             # Validate and round the size according to symbol's rules
             validated_size = self._validate_and_round_size(symbol, size)
-            data["size"] = str(validated_size)
+            data["size"] = f"{validated_size:.8f}".rstrip('0').rstrip('.')  # Convert to string with proper precision and remove trailing zeros
         if range_rate is not None:
             data["rangeRate"] = range_rate
             

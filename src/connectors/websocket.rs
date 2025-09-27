@@ -8,7 +8,9 @@ use futures_util::{stream::StreamExt, SinkExt};
 use log::{error, info, warn};
 use serde::Deserialize;
 use serde_json::json;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use url::Url;
@@ -58,20 +60,23 @@ pub async fn run_websocket_manager(
     symbol: String,
     engine: OFIEngine,
 ) -> mpsc::Receiver<TradingSignal> {
-    let (tx, rx) = mpsc::channel(100); // Channel for trading signals
+    let (tx, rx) = mpsc::channel(1000); // Increase channel capacity to handle bursts of signals
+    let tx_for_task = tx.clone();
 
     tokio::spawn(async move {
+        let mut connection_count = 0;
         loop {
-            info!("[Rust] Attempting to establish WebSocket connection for {}...", symbol);
-            let connection_result =
-                connect_and_listen(&symbol, engine.clone(), tx.clone()).await;
+            connection_count += 1;
+            info!("[Rust] Attempting to establish WebSocket connection for {} (attempt #{})...", symbol, connection_count);
+            
+            let connection_result = connect_and_listen(&symbol, engine.clone(), tx_for_task.clone()).await;
 
             match connection_result {
                 Ok(_) => {
-                    warn!("[Rust] WebSocket for {} disconnected cleanly. Reconnecting in 5 seconds...", symbol);
+                    warn!("[Rust] WebSocket for {} (attempt #{}) disconnected cleanly. Reconnecting in 5 seconds...", symbol, connection_count);
                 }
                 Err(e) => {
-                    error!("[Rust] WebSocket for {} disconnected with error: {}. Reconnecting in 5 seconds...", symbol, e);
+                    error!("[Rust] WebSocket for {} (attempt #{}) disconnected with error: {}. Reconnecting in 5 seconds...", symbol, connection_count, e);
                 }
             }
             // Wait before attempting to reconnect
@@ -91,6 +96,8 @@ async fn connect_and_listen(
     engine: OFIEngine,
     signal_tx: mpsc::Sender<TradingSignal>,
 ) -> Result<()> {
+    // Track recent signals to prevent duplicates
+    let recent_signals = Arc::new(Mutex::new(HashMap::<String, Instant>::new()));
     if symbol.is_empty() || symbol.len() > 20 {
         return Err(anyhow!("Invalid symbol: must be between 1-20 characters"));
     }
@@ -112,8 +119,21 @@ async fn connect_and_listen(
         ]
     });
 
-    write.send(Message::Text(subscription_msg.to_string().into())).await?;
-    info!("[Rust] Subscribed to order book and trade channels for {}", symbol);
+    // Send subscription with timeout to avoid hanging
+    let subscribe_result = tokio::time::timeout(Duration::from_secs(10), write.send(Message::Text(subscription_msg.to_string().into()))).await;
+    match subscribe_result {
+        Ok(Ok(())) => {
+            info!("[Rust] Subscribed to order book and trade channels for {}", symbol);
+        }
+        Ok(Err(e)) => {
+            error!("[Rust] Failed to send subscription message: {}", e);
+            return Err(anyhow!("Failed to subscribe: {}", e));
+        }
+        Err(_) => {
+            error!("[Rust] Timeout sending subscription message");
+            return Err(anyhow!("Subscription timeout"));
+        }
+    }
 
     let mut ping_interval = tokio::time::interval(Duration::from_secs(25));
     let mut last_message_time = tokio::time::Instant::now();
@@ -134,7 +154,10 @@ async fn connect_and_listen(
                 match msg {
                     Some(Ok(message)) => {
                         last_message_time = tokio::time::Instant::now(); // Reset timer on any message
-                        handle_message(message, symbol, &engine, &signal_tx).await?;
+                        // Don't break the connection on individual message processing errors
+                        if let Err(e) = handle_message(message, symbol, &engine, &signal_tx, Arc::clone(&recent_signals)).await {
+                            error!("[Rust] Error handling message for {}: {}. Continuing connection...", symbol, e);
+                        }
                     }
                     Some(Err(e)) => {
                         error!("[Rust] Error reading from WebSocket: {}", e);
@@ -163,6 +186,7 @@ async fn handle_message(
     symbol: &str,
     engine: &OFIEngine,
     signal_tx: &mpsc::Sender<TradingSignal>,
+    recent_signals: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> Result<()> {
     match msg {
         Message::Text(text) => {
@@ -189,18 +213,61 @@ async fn handle_message(
                         }
 
                         // --- Analyze for signals after every message ---
-                        let signal = engine.analyze_symbol(symbol).await;
-                        if !matches!(signal.signal_type, SignalType::NoSignal) {
-                            info!("[Rust] Signal found for {}: {:?}. Sending to handler.", symbol, signal.signal_type);
-                            if signal_tx.send(signal).await.is_err() {
-                                error!("[Rust] Failed to send signal: receiver has been dropped.");
-                                return Err(anyhow!("Signal channel closed"));
+                        // Catch any errors during analysis to prevent breaking the connection
+                        let analysis_result = tokio::time::timeout(Duration::from_secs(10), engine.analyze_symbol(symbol)).await;
+                        match analysis_result {
+                            Ok(signal) => {
+                                if !matches!(signal.signal_type, SignalType::NoSignal) {
+                                    // Check for duplicate signals to prevent multiple orders for the same opportunity
+                                    let signal_key = format!("{}_{}", signal.symbol, signal.signal_type);
+                                    let should_send = {
+                                        let mut recent_signals_guard = recent_signals.lock().unwrap();
+                                        let now = Instant::now();
+                                        
+                                        // Remove signals older than 5 seconds
+                                        recent_signals_guard.retain(|_, time| now.duration_since(*time) < Duration::from_secs(5));
+                                        
+                                        // Check if this signal was sent recently
+                                        if recent_signals_guard.contains_key(&signal_key) {
+                                            false // Don't send duplicate
+                                        } else {
+                                            recent_signals_guard.insert(signal_key.clone(), now);
+                                            true // Send new signal
+                                        }
+                                    };
+                                    
+                                    if should_send {
+                                        info!("[Rust] Signal found for {}: {:?}. Sending to handler.", symbol, signal.signal_type);
+                                        // Use a timeout when sending to prevent hanging if the channel is blocked
+                                        let send_result = tokio::time::timeout(Duration::from_secs(5), signal_tx.send(signal)).await;
+                                        match send_result {
+                                            Ok(Ok(())) => {
+                                                // Successfully sent
+                                            }
+                                            Ok(Err(_)) => {
+                                                error!("[Rust] Failed to send signal: receiver has been dropped.");
+                                                return Err(anyhow!("Signal channel closed"));
+                                            }
+                                            Err(_) => {
+                                                error!("[Rust] Timeout sending signal to channel.");
+                                                // Don't break the connection on send timeout, just log and continue
+                                            }
+                                        }
+                                    } else {
+                                        info!("[Rust] Duplicate signal detected for {}, skipping.", signal_key);
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                error!("[Rust] Timeout during signal analysis for {}", symbol);
+                                // Continue processing other messages despite analysis timeout
                             }
                         }
                     }
                 }
                 Err(e) => {
                     error!("[Rust] Failed to parse WebSocket message: {}. Raw: {}", e, &text[..std::cmp::min(text.len(), 200)]);
+                    // Don't break the connection on parsing errors, just log and continue
                 }
             }
         }

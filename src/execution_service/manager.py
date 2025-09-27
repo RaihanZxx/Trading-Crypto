@@ -630,6 +630,19 @@ class TradeManager:
         position_size = self._calculate_position_size(self, price)
         print(f"[Python Executor] Calculated position size: {position_size} for {symbol} at price {price}")
         
+        # Validate and round the position size according to exchange requirements
+        try:
+            position_size = self.exchange._validate_and_round_size(symbol, position_size)
+            print(f"[Python Executor] Validated and rounded position size: {position_size} for {symbol}")
+            
+            # Additional check to ensure position size is positive after validation
+            if position_size <= 0:
+                print(f"[Python Executor] Position size became 0 or negative after validation: {position_size}")
+                return {"status": "error", "reason": f"Position size became invalid after validation: {position_size}"}
+        except Exception as e:
+            print(f"[Python Executor] Error validating position size: {e}")
+            return {"status": "error", "reason": f"Position size validation error: {str(e)}"}
+        
         print(f"[Python Executor] Menempatkan order {side.upper()} untuk {position_size} {symbol} @ {price}")
         
         try:
@@ -824,4 +837,47 @@ trade_manager = TradeManager()
 
 def handle_trade_signal(signal: Dict):
     """Wrapper fungsi sederhana untuk dipanggil dari Rust."""
-    return trade_manager.execute_trade(signal)
+    import threading
+    import queue
+    
+    # Create a queue to get the result from the thread
+    result_queue = queue.Queue()
+    
+    def execute_in_thread():
+        try:
+            result = trade_manager.execute_trade(signal)
+            result_queue.put(('success', result))
+        except Exception as e:
+            result_queue.put(('error', {'status': 'error', 'reason': str(e)}))
+    
+    # Start the execution in a separate thread to avoid blocking
+    execution_thread = threading.Thread(target=execute_in_thread, daemon=True)
+    execution_thread.start()
+    
+    # Wait for the result with a timeout to avoid indefinite blocking
+    try:
+        status, result = result_queue.get(timeout=30)  # 30 second timeout
+        return result
+    except queue.Empty:
+        return {'status': 'error', 'reason': 'Trade execution timed out'}
+
+
+def run_periodic_position_check():
+    """Function to run periodic position checks - called from Rust."""
+    try:
+        # Get position summary which will check all active positions
+        summary = trade_manager.get_position_summary()
+        print(f"[Python Executor] Periodic position check completed: {summary}")
+        
+        # Also check positions through exchange API to verify they're still active
+        active_positions = trade_manager.get_active_positions()
+        print(f"[Python Executor] Currently tracking {len(active_positions)} active positions locally")
+        
+        # If you need more specific periodic monitoring tasks, add them here
+        # For now, just return success
+        return {"status": "success", "message": "Position check completed", "summary": summary}
+    except Exception as e:
+        print(f"[Python Executor] Error during periodic position check: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "reason": str(e)}

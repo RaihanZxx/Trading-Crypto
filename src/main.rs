@@ -1,7 +1,10 @@
 use tokio::sync::{mpsc, Semaphore};
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, Duration as TokioDuration};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::thread;
+use std::sync::mpsc as sync_mpsc;
+use std::time::Duration as StdDuration;
 
 // Import colored crate for modern colored logging
 use colored::*;
@@ -10,7 +13,6 @@ use log::{error, info, warn};
 // Import from our library crate
 use ofi_engine_rust::config::OFIConfig;
 use ofi_engine_rust::engine::OFIEngine;
-use ofi_engine_rust::position_monitor::PositionMonitorService;
 use ofi_engine_rust::signals::StrategyParams;
 use ofi_engine_rust::websocket::run_websocket_manager;
 
@@ -41,37 +43,96 @@ fn call_python_screener() -> PyResult<Vec<String>> {
     })
 }
 
-// Function to call Python Execution Service
+// Function to call Python Execution Service with timeout
 fn call_python_executor(signal: TradingSignal) -> PyResult<()> {
-    Python::with_gil(|py| {
-        let executor = PyModule::import_bound(py, "execution_service.manager")?;
-        let signal_dict = pyo3::types::PyDict::new_bound(py);
-        signal_dict.set_item("symbol", &signal.symbol)?;
-        signal_dict.set_item("signal_type", &signal.signal_type)?;
-        signal_dict.set_item("price", signal.price)?;
-        signal_dict.set_item("timestamp", signal.timestamp.to_rfc3339())?;
+    let (tx, rx) = sync_mpsc::channel();
+    
+    // Spawn a thread to execute the Python call
+    let signal_clone = signal.clone();
+    let _handle = thread::spawn(move || {
+        let result = Python::with_gil(|py| {
+            let executor = PyModule::import_bound(py, "execution_service.manager")?;
+            let signal_dict = pyo3::types::PyDict::new_bound(py);
+            signal_dict.set_item("symbol", &signal_clone.symbol)?;
+            signal_dict.set_item("signal_type", &signal_clone.signal_type)?;
+            signal_dict.set_item("price", signal_clone.price)?;
+            signal_dict.set_item("timestamp", signal_clone.timestamp.to_rfc3339())?;
 
-        let result = executor.getattr("handle_trade_signal")?.call1((signal_dict,))?;
+            let result = executor.getattr("handle_trade_signal")?.call1((signal_dict,))?;
 
-        if let Ok(result_dict) = result.downcast::<pyo3::types::PyDict>() {
-            if let Ok(Some(status)) = result_dict.get_item("status") {
-                if let Ok(status_str) = status.extract::<String>() {
-                    if status_str == "error" {
-                        let reason = match result_dict.get_item("reason") {
-                            Ok(Some(r)) => r.extract().unwrap_or_else(|_| "Could not extract reason".to_string()),
-                            Ok(None) => "No reason provided".to_string(),
-                            Err(_) => "Failed to get reason key from Python dict".to_string(),
-                        };
-                        warn!("[SENTINEL-WARN] Eksekusi trade gagal di Python dengan alasan: {}", reason);
+            if let Ok(result_dict) = result.downcast::<pyo3::types::PyDict>() {
+                if let Ok(Some(status)) = result_dict.get_item("status") {
+                    if let Ok(status_str) = status.extract::<String>() {
+                        if status_str == "error" {
+                            let reason = match result_dict.get_item("reason") {
+                                Ok(Some(r)) => r.extract().unwrap_or_else(|_| "Could not extract reason".to_string()),
+                                Ok(None) => "No reason provided".to_string(),
+                                Err(_) => "Failed to get reason key from Python dict".to_string(),
+                            };
+                            warn!("[SENTINEL-WARN] Eksekusi trade gagal di Python dengan alasan: {}", reason);
+                        }
                     }
                 }
             }
+            Ok(())
+        });
+        
+        // Send the result through the channel
+        let _ = tx.send(result);
+    });
+    
+    // Wait for the thread to complete with a timeout
+    match rx.recv_timeout(StdDuration::from_secs(30)) {
+        Ok(result) => result,
+        Err(_) => {
+            warn!("[SENTINEL-WARN] Python executor call timed out after 30 seconds for symbol {}", signal.symbol);
+            // Note: We can't actually kill the thread here, but at least we don't block the main loop
+            Ok(())
         }
-        Ok(())
-    })
+    }
 }
 
-/// Spawns a dedicated analysis task for a single symbol.
+// Function to call Python Position Monitor with timeout
+fn call_python_position_monitor() -> PyResult<()> {
+    let (tx, rx) = sync_mpsc::channel();
+    
+    // Spawn a thread to execute the Python call
+    let _handle = thread::spawn(move || {
+        let result = Python::with_gil(|py| {
+            let executor = PyModule::import_bound(py, "execution_service.manager")?;
+            
+            let result = executor.getattr("run_periodic_position_check")?.call0()?;
+
+            if let Ok(result_dict) = result.downcast::<pyo3::types::PyDict>() {
+                if let Ok(Some(status)) = result_dict.get_item("status") {
+                    if let Ok(status_str) = status.extract::<String>() {
+                        if status_str == "error" {
+                            let reason = match result_dict.get_item("reason") {
+                                Ok(Some(r)) => r.extract().unwrap_or_else(|_| "Could not extract reason".to_string()),
+                                Ok(None) => "No reason provided".to_string(),
+                                Err(_) => "Failed to get reason key from Python dict".to_string(),
+                            };
+                            warn!("[SENTINEL-WARN] Position monitoring failed in Python with reason: {}", reason);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        });
+        
+        // Send the result through the channel
+        let _ = tx.send(result);
+    });
+    
+    // Wait for the thread to complete with a timeout
+    match rx.recv_timeout(StdDuration::from_secs(30)) {
+        Ok(result) => result,
+        Err(_) => {
+            warn!("[SENTINEL-WARN] Python position monitor call timed out after 30 seconds");
+            Ok(())
+        }
+    }
+}
 /// This task uses the robust `run_websocket_manager` for continuous data analysis.
 async fn spawn_analysis_task(
     symbol: String,
@@ -161,14 +222,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let task_semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
     let (signal_tx, mut signal_rx) = mpsc::channel(100);
     let mut running_tasks: HashMap<String, (tokio::task::JoinHandle<()>, mpsc::Sender<()>)> = HashMap::new();
-    let mut watchlist_refresh_timer = interval(Duration::from_secs(900));
+    let mut watchlist_refresh_timer = interval(TokioDuration::from_secs(900));
 
-    info!("[SENTINEL] Starting position monitoring service...");
-    let monitor_service = PositionMonitorService::new(60);
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        rt.block_on(async { monitor_service.start().await; });
-    });
+    info!("[SENTINEL] Setting up periodic position monitoring...");
+    let mut position_monitor_timer = interval(TokioDuration::from_secs(60)); // Every 60 seconds
 
     info!("[SENTINEL] OFI Sentinel Dimulai. Maksimum koneksi simultan: {}", max_concurrent_tasks);
 
@@ -192,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     info!("[SENTINEL] Menghentikan task untuk simbol: {}", symbol);
                     if let Some((handle, shutdown_tx)) = running_tasks.remove(&symbol) {
                         let _ = shutdown_tx.send(()).await;
-                        match tokio::time::timeout(Duration::from_secs(5), handle).await {
+                        match tokio::time::timeout(TokioDuration::from_secs(5), handle).await {
                             Ok(_) => info!("[SENTINEL] Task untuk {} berhasil dihentikan.", symbol),
                             Err(_) => warn!("[SENTINEL-WARN] Task untuk {} gagal berhenti dalam 5 detik.", symbol),
                         }
@@ -218,11 +275,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 info!("[SENTINEL] Sisa kuota task: {}/{}", task_semaphore.available_permits(), max_concurrent_tasks);
             },
 
+            _ = position_monitor_timer.tick() => {
+                info!("[SENTINEL] Running periodic position monitoring...");
+                tokio::spawn(async {
+                    if let Err(e) = call_python_position_monitor() {
+                        error!("[SENTINEL] Gagal memanggil position monitor Python: {}. Melanjutkan...", e);
+                    }
+                });
+            },
+
             Some(signal) = signal_rx.recv() => {
                 info!("[SENTINEL] Menerima sinyal: {:?}", signal);
-                if let Err(e) = call_python_executor(signal) {
-                    error!("[SENTINEL] Gagal memanggil executor Python: {}. Melanjutkan...", e);
-                }
+                // Spawn a task to handle the Python execution to avoid blocking the main loop
+                let signal_clone = signal.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = call_python_executor(signal_clone) {
+                        error!("[SENTINEL] Gagal memanggil executor Python: {}. Melanjutkan...", e);
+                    }
+                });
             }
         }
     }
